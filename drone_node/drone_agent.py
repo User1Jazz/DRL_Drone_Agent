@@ -7,7 +7,8 @@ import keyboard
 # ROS2 dependencies
 import rclpy
 from rclpy.node import Node
-from std_msgs.msg import String
+from drone_sim_messages.msg import DroneControl
+from drone_sim_messages.msg import DroneSensors
 
 class DroneAgent:
   def __init__(self, drone_id):
@@ -28,25 +29,72 @@ class DroneAgent:
         10)
     self.subscription  # prevent unused variable warning
     # ROS2 Setup ABOVE!
+
+    # Setup the agent now!
+
     return
 
-  # Send vehicle control data
+  # Send drone control data
   def timer_callback(self):
-    msg = String()
-    self.get_logger().info("Sending something")
+    msg = DroneControl()
+    msg.twist.linear.x = 0
+    msg.twist.linear.y = 0
+    msg.twist.linear.z = 0
+    msg.twist.angular.x = 0
+    msg.twist.angular.y = 0
+    msg.twist.angular.z = 0
+
+    # Forward/Backward
+    if keyboard.is_pressed('w'):
+       msg.twist.linear.x = 1
+    if keyboard.is_pressed('s'):
+       msg.twist.linear.x = -1
+    
+    # Left/Right
+    if keyboard.is_pressed('a'):
+       msg.twist.linear.y = -1
+    if keyboard.is_pressed('d'):
+       msg.twist.linear.y = 1
+    
+    # Up/Down
+    if keyboard.is_pressed('r'):
+       msg.twist.linear.z = 1
+    if keyboard.is_pressed('f'):
+       msg.twist.linear.z = -1
+    
+    #Yaw Left/Right
+    if keyboard.is_pressed('e'):
+       msg.twist.angular.z = 1
+    if keyboard.is_pressed('q'):
+       msg.twist.angular.z = -1
+
+    self.get_logger().info("Sending control data")
     self.i += 1
+    self.publisher_.publish(msg)
     return
 
-  # Listen to incoming data
+  # Listen to incoming data; This function should update the observation data
   def listener_callback(self, msg):
-    self.get_logger().info("eceived something")
-    # This function should update the observation data
+    self.get_logger().info("Received sensors data")
+    self.imu_data = np.array([0.0,
+                              0.0,
+                              0.0,
+                              msg.imu.angular_velocity.x,
+                              msg.imu.angular_velocity.y,
+                              msg.imu.angular_velocity.z,
+                              msg.linear_acceleration.x,
+                              msg.linear_acceleration.y,
+                              msg.linear_acceleration.z])             # (pitch, roll, yaw, linear acceleration x 3, angular velocity x 3)
+    self.height_data = np.array([msg.height])                         # Single value for height
+    self.target_position = np.array([0.0, 0.0, 0.0])                  # X, Y and Z coordinates for target position
+    
     return
-  
-def main(args=None):
-    rclpy.init(args=args)
 
+# Main function
+def main(args=None):
     d_id = input("Drone ID please: ")
+
+    rclpy.init(args=args)
 
     drone_agent = DroneAgent(d_id)
 
