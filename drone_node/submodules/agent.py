@@ -12,7 +12,8 @@ class Agent():
         self.imu_data = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])                     # (pitch, roll, yaw, linear acceleration x 3, angular velocity x 3)
         self.height_data = np.array([0.0])                                                          # Single value for height
         self.target_position = np.array([0.0, 0.0, 0.0])                                            # X, Y and Z coordinates for target position
-        self.experience_buffer = np.zeros(10)
+        self.experience_buffer = np.array([np.zeros(24)])
+        print("Experience buffer: ", self.experience_buffer)
 
         # Hyperparameters
         self.learning_rate = 0.1
@@ -65,7 +66,8 @@ class Agent():
     
     # Function to store the experience of a single train cycle
     def store_experience(self):
-        np.append(self.experience_buffer, [[self.current_state, self.current_adv_val, self.current_state_val, self.current_reward]])
+        experience = np.concatenate((self.current_state, self.current_adv_val, self.current_state_val, [np.array([self.current_reward])]), axis=1)
+        np.append(self.experience_buffer, experience, axis=0)
         return
     
     # Function to get the new input values and store the old ones
@@ -96,7 +98,7 @@ class Agent():
     def calculate_target(self):
         target_q_values = self.current_reward + self.discount_factor * self.current_adv_val[np.argmax(self.current_adv_val)]
         target_state_value = self.current_reward + self.discount_factor * self.current_state_val
-        self.target = np.array(target_q_values, target_state_value)
+        self.target = target_q_values + target_state_value
         return
 
     # Function to reset runtime parameters    

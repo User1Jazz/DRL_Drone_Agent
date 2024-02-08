@@ -61,7 +61,8 @@ class DroneAgent(Node):
   
   def train(self):
         # Get observation
-        next_state = np.concatenate(self.imu_data, self.height_data, self.target_position)
+        # next_state = np.array([np.concatenate((self.imu_data, self.height_data, self.target_position))])
+        next_state = np.array([np.concatenate([[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,], [0.0], [0.0, 0.0, 0.0]])])
         next_reward = self.reward
         self.DRLagent.update_params(next_state, next_reward)
 
@@ -80,7 +81,8 @@ class DroneAgent(Node):
         self.DRLagent.store_experience()
 
         # Get observation (and reward)
-        next_state = np.concatenate(self.imu_data, self.height_data, self.target_position)
+        # next_state = np.array([np.concatenate((self.imu_data, self.height_data, self.target_position))])
+        next_state = np.array([np.concatenate([[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,], [0.0], [0.0, 0.0, 0.0]])])
         next_reward = self.reward
         self.DRLagent.update_params(next_state, next_reward)
 
@@ -208,7 +210,7 @@ def main(args=None):
     rclpy.init(args=args)
     
     # Setting up an advantage values Neural Network model
-    total_feature_dimensions = 10
+    total_feature_dimensions = 13
     adv_model = keras.Sequential([
         keras.layers.Flatten(input_shape=(total_feature_dimensions,)),             # Input layer; The number of neurons is the same as the number of input parameters (obviously)
         keras.layers.Dense(128, activation='relu'),                                # Hidden layer after the input layer
@@ -220,7 +222,7 @@ def main(args=None):
               metrics=['mae'])                                                     # Mean Absolute Error could be used as a metric
     
     # Setting up a state value Neural Network model
-    total_feature_dimensions = 10
+    total_feature_dimensions = 13
     stat_val_model = keras.Sequential([
         keras.layers.Flatten(input_shape=(total_feature_dimensions,)),             # Input layer; The number of neurons is the same as the number of input parameters (obviously)
         keras.layers.Dense(128, activation='relu'),                                # Hidden layer after the input layer
