@@ -8,7 +8,7 @@ from rclpy.node import Node
 from drone_sim_messages.msg import DroneControl
 from drone_sim_messages.msg import DroneSensors
 
-import agent
+from .submodules.agent import Agent
 
 class DroneAgent(Node):
   def __init__(self, drone_id, _adv_net = None, _state_val_net = None):
@@ -29,9 +29,15 @@ class DroneAgent(Node):
         10)
     self.subscription  # prevent unused variable warning
     # ROS2 Setup ABOVE!
+
+    # Setup runtime vars
+    self.imu_data = np.zeros(9)
+    self.height_data = np.zeros(1)
+    self.target_position = np.zeros(3)
+    self.reward = 0.0
     
     # Setup the agent now!
-    self.DRLagent = agent(drone_id, _adv_net, _state_val_net)
+    self.DRLagent = Agent(drone_id, _adv_net, _state_val_net)
 
   # Send drone control data
   def timer_callback(self):
@@ -55,7 +61,9 @@ class DroneAgent(Node):
   
   def train(self):
         # Get observation
-        self.DRLagent.update_params()
+        next_state = np.concatenate(self.imu_data, self.height_data, self.target_position)
+        next_reward = self.reward
+        self.DRLagent.update_params(next_state, next_reward)
 
         # Choose an action
         self.DRLagent.estimate_adv_values()
@@ -72,13 +80,15 @@ class DroneAgent(Node):
         self.DRLagent.store_experience()
 
         # Get observation (and reward)
-        self.DRLagent.update_params()
+        next_state = np.concatenate(self.imu_data, self.height_data, self.target_position)
+        next_reward = self.reward
+        self.DRLagent.update_params(next_state, next_reward)
 
         # Bellman equation
         self.DRLagent.calculate_target()
         
         # Update networks
-        self.DRLagent.update_networks()
+        self.DRLagent.update_networks(1)
         
         # Reset params for next train cycle
         self.DRLagent.reset_params()
