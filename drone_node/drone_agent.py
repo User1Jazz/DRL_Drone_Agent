@@ -101,6 +101,7 @@ class DroneAgent(Node):
 
      # IDLE
      if self.DRLagent.current_action is 0:
+        print("Selected action: IDLE")
         msg.twist.linear.x = 0.0
         msg.twist.linear.y = 0.0
         msg.twist.linear.z = 0.0
@@ -110,6 +111,7 @@ class DroneAgent(Node):
 
      # FORWARD
      if self.DRLagent.current_action is 1:
+        print("Selected action: FORWARD")
         msg.twist.linear.x = 1.0
         msg.twist.linear.y = 0.0
         msg.twist.linear.z = 0.0
@@ -119,6 +121,7 @@ class DroneAgent(Node):
      
      # BACKWARD
      if self.DRLagent.current_action is 2:
+        print("Selected action: BACKWARD")
         msg.twist.linear.x = -1.0
         msg.twist.linear.y = 0.0
         msg.twist.linear.z = 0.0
@@ -128,6 +131,7 @@ class DroneAgent(Node):
      
      # LEFT
      if self.DRLagent.current_action is 3:
+        print("Selected action: LEFT")
         msg.twist.linear.x = 0.0
         msg.twist.linear.y = 1.0
         msg.twist.linear.z = 0.0
@@ -137,6 +141,7 @@ class DroneAgent(Node):
      
      # RIGHT
      if self.DRLagent.current_action is 4:
+        print("Selected action: RIGHT")
         msg.twist.linear.x = 0.0
         msg.twist.linear.y = -1.0
         msg.twist.linear.z = 0.0
@@ -146,6 +151,7 @@ class DroneAgent(Node):
      
      # UP
      if self.DRLagent.current_action is 5:
+        print("Selected action: UP")
         msg.twist.linear.x = 0.0
         msg.twist.linear.y = 0.0
         msg.twist.linear.z = 1.0
@@ -155,6 +161,7 @@ class DroneAgent(Node):
      
      # DOWN
      if self.DRLagent.current_action is 6:
+        print("Selected action: DOWN")
         msg.twist.linear.x = 0.0
         msg.twist.linear.y = 0.0
         msg.twist.linear.z = -1.0
@@ -164,6 +171,7 @@ class DroneAgent(Node):
      
      # YAW LEFT
      if self.DRLagent.current_action is 7:
+        print("Selected action: YAW LEFT")
         msg.twist.linear.x = 0.0
         msg.twist.linear.y = 0.0
         msg.twist.linear.z = 0.0
@@ -173,6 +181,7 @@ class DroneAgent(Node):
      
      # YAW RIGHT
      if self.DRLagent.current_action is 8:
+        print("Selected action: YAW RIGHT")
         msg.twist.linear.x = 0.0
         msg.twist.linear.y = 0.0
         msg.twist.linear.z = 0.0

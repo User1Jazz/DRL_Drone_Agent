@@ -13,7 +13,6 @@ class Agent():
         self.height_data = np.array([0.0])                                                          # Single value for height
         self.target_position = np.array([0.0, 0.0, 0.0])                                            # X, Y and Z coordinates for target position
         self.experience_buffer = np.array([np.zeros(24)])
-        print("Experience buffer: ", self.experience_buffer)
 
         # Hyperparameters
         self.learning_rate = 0.1
