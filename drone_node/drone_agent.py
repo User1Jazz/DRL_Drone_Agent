@@ -7,6 +7,8 @@ import rclpy
 from rclpy.node import Node
 from drone_sim_messages.msg import DroneControl
 from drone_sim_messages.msg import DroneSensors
+from geometry_msgs.msg import Vector3
+from std_msgs.msg import Float32
 
 from .submodules.agent import Agent
 
@@ -20,14 +22,28 @@ class DroneAgent(Node):
     timer_period = 0.5  # seconds
     self.timer = self.create_timer(timer_period, self.timer_callback)
     self.i = 0
-    # Subscription stuff
+    ## Subscription stuff
     sub_topic = "/" + drone_id + "/data"
-    self.subscription = self.create_subscription(
-        DroneSensors,
-        sub_topic,
-        self.listener_callback,
-        10)
-    self.subscription  # prevent unused variable warning
+    self.sens_sub = self.create_subscription(
+         DroneSensors,
+         sub_topic,
+         self.sensor_listener_callback,
+         10)
+    self.sens_sub  # prevent unused variable warning
+    sub_topic = "/" + drone_id + "/target"
+    self.tgt_sub = self.create_subscription(
+         Vector3,
+         sub_topic,
+         self.target_listener_callback,
+         10)
+    self.tgt_sub
+    sub_topic = "/" + drone_id + "/reward"
+    self.rwrd_sub = self.create_subscription(
+         Float32,
+         sub_topic,
+         self.reward_listener_callback,
+         10)
+    self.rwrd_sub
     # ROS2 Setup ABOVE!
 
     # Setup runtime vars
@@ -44,10 +60,10 @@ class DroneAgent(Node):
     self.train()
 
   # Listen to incoming data; This function should update the observation data
-  def listener_callback(self, msg):
-    self.get_logger().info("Received sensors data")
-    euler_angles = self.quaternion_2_euler(msg.orientation)
-    self.imu_data = np.array([euler_angles[0],
+  def sensor_listener_callback(self, msg):
+      #self.get_logger().info("Received sensors data")
+      euler_angles = self.quaternion_2_euler(msg.orientation)
+      self.imu_data = np.array([euler_angles[0],
                               euler_angles[1],
                               euler_angles[2],
                               msg.angular_velocity.x,
@@ -55,14 +71,20 @@ class DroneAgent(Node):
                               msg.angular_velocity.z,
                               msg.linear_acceleration.x,
                               msg.linear_acceleration.y,
-                              msg.linear_acceleration.z])             # (pitch, roll, yaw, linear acceleration x 3, angular velocity x 3)
-    self.height_data = np.array([msg.height])                         # Single value for height
-    self.target_position = np.array([0.0, 0.0, 0.0])                  # X, Y and Z coordinates for target position
+                              msg.linear_acceleration.z])     # (pitch, roll, yaw, linear acceleration x 3, angular velocity x 3)
+      self.height_data = np.array([msg.height])               # Single value for height
   
+  def target_listener_callback(self, msg):
+      #self.get_logger().info("Received target data")
+      self.target_position = np.array([msg.x, msg.y, msg.z])  # X, Y and Z coordinates for target position
+   
+  def reward_listener_callback(self, msg):
+      #self.get_logger().info("Received reward data")
+      self.reward = msg.data
+
   def train(self):
         # Get observation
-        # next_state = np.array([np.concatenate((self.imu_data, self.height_data, self.target_position))])
-        next_state = np.array([np.concatenate([[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,], [0.0], [0.0, 0.0, 0.0]])])
+        next_state = np.array([np.concatenate([self.imu_data, self.height_data, self.target_position])])
         next_reward = self.reward
         self.DRLagent.update_params(next_state, next_reward)
 
@@ -73,7 +95,7 @@ class DroneAgent(Node):
         self.DRLagent.choose_action()
 
         # Perform an action
-        self.get_logger().info("Sending control data")
+        #self.get_logger().info("Sending control data")
         self.i += 1
         self.publisher_.publish(self.decode_action())
 
@@ -81,8 +103,7 @@ class DroneAgent(Node):
         self.DRLagent.store_experience()
 
         # Get observation (and reward)
-        # next_state = np.array([np.concatenate((self.imu_data, self.height_data, self.target_position))])
-        next_state = np.array([np.concatenate([[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,], [0.0], [0.0, 0.0, 0.0]])])
+        next_state = np.array([np.concatenate([self.imu_data, self.height_data, self.target_position])])
         next_reward = self.reward
         self.DRLagent.update_params(next_state, next_reward)
 
@@ -100,7 +121,7 @@ class DroneAgent(Node):
      msg = DroneControl()
 
      # IDLE
-     if self.DRLagent.current_action is 0:
+     if self.DRLagent.current_action == 0:
         print("Selected action: IDLE")
         msg.twist.linear.x = 0.0
         msg.twist.linear.y = 0.0
@@ -110,7 +131,7 @@ class DroneAgent(Node):
         msg.twist.angular.z = 0.0
 
      # FORWARD
-     if self.DRLagent.current_action is 1:
+     if self.DRLagent.current_action == 1:
         print("Selected action: FORWARD")
         msg.twist.linear.x = 1.0
         msg.twist.linear.y = 0.0
@@ -120,7 +141,7 @@ class DroneAgent(Node):
         msg.twist.angular.z = 0.0
      
      # BACKWARD
-     if self.DRLagent.current_action is 2:
+     if self.DRLagent.current_action == 2:
         print("Selected action: BACKWARD")
         msg.twist.linear.x = -1.0
         msg.twist.linear.y = 0.0
@@ -130,7 +151,7 @@ class DroneAgent(Node):
         msg.twist.angular.z = 0.0
      
      # LEFT
-     if self.DRLagent.current_action is 3:
+     if self.DRLagent.current_action == 3:
         print("Selected action: LEFT")
         msg.twist.linear.x = 0.0
         msg.twist.linear.y = 1.0
@@ -140,7 +161,7 @@ class DroneAgent(Node):
         msg.twist.angular.z = 0.0
      
      # RIGHT
-     if self.DRLagent.current_action is 4:
+     if self.DRLagent.current_action == 4:
         print("Selected action: RIGHT")
         msg.twist.linear.x = 0.0
         msg.twist.linear.y = -1.0
@@ -150,7 +171,7 @@ class DroneAgent(Node):
         msg.twist.angular.z = 0.0
      
      # UP
-     if self.DRLagent.current_action is 5:
+     if self.DRLagent.current_action == 5:
         print("Selected action: UP")
         msg.twist.linear.x = 0.0
         msg.twist.linear.y = 0.0
@@ -160,7 +181,7 @@ class DroneAgent(Node):
         msg.twist.angular.z = 0.0
      
      # DOWN
-     if self.DRLagent.current_action is 6:
+     if self.DRLagent.current_action == 6:
         print("Selected action: DOWN")
         msg.twist.linear.x = 0.0
         msg.twist.linear.y = 0.0
@@ -170,7 +191,7 @@ class DroneAgent(Node):
         msg.twist.angular.z = 0.0
      
      # YAW LEFT
-     if self.DRLagent.current_action is 7:
+     if self.DRLagent.current_action == 7:
         print("Selected action: YAW LEFT")
         msg.twist.linear.x = 0.0
         msg.twist.linear.y = 0.0
@@ -180,7 +201,7 @@ class DroneAgent(Node):
         msg.twist.angular.z = -1.0
      
      # YAW RIGHT
-     if self.DRLagent.current_action is 8:
+     if self.DRLagent.current_action == 8:
         print("Selected action: YAW RIGHT")
         msg.twist.linear.x = 0.0
         msg.twist.linear.y = 0.0
@@ -227,8 +248,8 @@ def main(args=None):
         keras.layers.Dense(9, activation='softmax')                                # output layer (3); 9 output neurons (one for each action the drone can take)
     ])
     adv_model.compile(optimizer='adam',                                            # Adam optimisation algorithm (stochastic gradient descent)
-              loss='mse',                                                          # Mean Squared Error for Q-learning
-              metrics=['mae'])                                                     # Mean Absolute Error could be used as a metric
+              loss='categorical_crossentropy',                                     # Categorical Crossentropy
+              metrics=['accuracy'])                                                # Accuracy could be used as a metric
     
     # Setting up a state value Neural Network model
     total_feature_dimensions = 13
@@ -244,13 +265,17 @@ def main(args=None):
 
     drone_agent = DroneAgent(d_id, adv_model, stat_val_model)
 
-    rclpy.spin(drone_agent)
-
-    # Destroy the node explicitly
-    # (optional - otherwise it will be done automatically
-    # when the garbage collector destroys the node object)
-    drone_agent.destroy_node()
-    rclpy.shutdown()
+    try:
+      rclpy.spin(drone_agent)
+    except KeyboardInterrupt:
+      print("---------------")
+      print("Results:")
+      drone_agent.summary()
+      # Destroy the node explicitly
+      # (optional - otherwise it will be done automatically
+      # when the garbage collector destroys the node object)
+      drone_agent.destroy_node()
+      rclpy.shutdown()
     return 0
 
 
