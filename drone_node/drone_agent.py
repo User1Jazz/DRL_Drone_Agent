@@ -232,6 +232,24 @@ class DroneAgent(Node):
       yaw_z = math.degrees(math.atan2(t3, t4))
      
       return [roll_x, pitch_y, yaw_z] # in degrees
+  
+  def summary(self):
+      print("---------------")
+      print("Q Values:")
+      print(self.DRLagent.q_values)
+      print("---------------")
+      print("State Value:")
+      print(self.DRLagent.current_state_val)
+      print("---------------")
+      print("Adv Values:")
+      print(self.DRLagent.current_adv_vals)
+      print("---------------")
+      print("State Val Net:")
+      print(self.DRLagent.state_val_net.summary())
+      print("---------------")
+      print("Adv Net:")
+      print(self.DRLagent.adv_net.summary())
+      print("---------------")
 
 # Main function
 def main(args=None):
