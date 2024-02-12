@@ -7,6 +7,8 @@ import rclpy
 from rclpy.node import Node
 from drone_sim_messages.msg import DroneControl
 from drone_sim_messages.msg import DroneSensors
+from drone_sim_messages.msg import SessionInfo
+from drone_sim_messages.msg import DroneStatus
 from geometry_msgs.msg import Vector3
 from std_msgs.msg import Float32
 
@@ -21,6 +23,11 @@ class DroneAgent(Node):
     self.publisher_ = self.create_publisher(DroneControl, pub_topic, 10)
     timer_period = 0.5  # seconds
     self.timer = self.create_timer(timer_period, self.timer_callback)
+    self.i = 0
+    pub_topic = "/" + drone_id + "/status"
+    self.status_publisher_ = self.create_publisher(DroneStatus, pub_topic, 10)
+    timer_period = 0.5  # seconds
+    self.timer = self.create_timer(timer_period, self.status_timer_callback)
     self.i = 0
     ## Subscription stuff
     sub_topic = "/" + drone_id + "/data"
@@ -44,35 +51,75 @@ class DroneAgent(Node):
          self.reward_listener_callback,
          10)
     self.rwrd_sub
+    sub_topic = "/" + drone_id + "/status"
+    self.stat_sub = self.create_subscription(
+         DroneStatus,
+         sub_topic,
+         self.status_listener_callback,
+         10)
+    self.rwrd_sub
     # ROS2 Setup ABOVE!
 
     # Setup runtime vars
-    self.imu_data = np.zeros(9)
+    self.active = False
+    self.status_sent = False
+    self.imu_data = np.zeros(6)
     self.height_data = np.zeros(1)
     self.target_position = np.zeros(3)
     self.reward = 0.0
     
+    # Agent Hyperparameters
+    self.id = drone_id
+    self.learning_rate = 0.1
+    self.discount_factor = 0.5
+    self.exploration_prob = 0.75
+    self.exploration_decrease = 0.05
     # Setup the agent now!
     self.DRLagent = Agent(drone_id, _adv_net, _state_val_net)
+    self.DRLagent.set_hypers(learn_rate=self.learning_rate,
+                             discount_fac=self.discount_factor,
+                             exp_prob=self.exploration_prob,
+                             exp_dec=self.exploration_prob)
 
   # Send drone control data
   def timer_callback(self):
-    self.train()
+    # Make sure the drone is acive and the simulator is ready
+    if self.active and self.status_sent:
+      self.train()
+    else:
+       print("Preparing the agent...")
+       self.reset()
+       self.active = True
+       print("Agent ready")
+  
+  # Function to send the 'ready' signal to the simulator
+  def status_timer_callback(self):
+     if self.active and not self.status_sent:
+        print("Sending status...")
+        msg = DroneStatus()
+        msg.id = self.id
+        msg.active = True
+        self.status_publisher_.publish(msg)
+        self.status_sent = True
+     return
+
+  # Function to pick the drone status message (active/disabled)
+  def status_listener_callback(self, msg):
+     self.active = msg.active
+     if not self.active:
+        self.status_sent = False
 
   # Listen to incoming data; This function should update the observation data
   def sensor_listener_callback(self, msg):
       #self.get_logger().info("Received sensors data")
       euler_angles = self.quaternion_2_euler(msg.orientation)
-      self.imu_data = np.array([euler_angles[0],
-                              euler_angles[1],
-                              euler_angles[2],
-                              msg.angular_velocity.x,
-                              msg.angular_velocity.y,
-                              msg.angular_velocity.z,
-                              msg.linear_acceleration.x,
-                              msg.linear_acceleration.y,
-                              msg.linear_acceleration.z])     # (pitch, roll, yaw, linear acceleration x 3, angular velocity x 3)
-      self.height_data = np.array([msg.height])               # Single value for height
+      self.imu_data = np.array([msg.world_position.x,
+                                msg.world_position.y,
+                                msg.world_position.z,
+                                euler_angles[0],
+                                euler_angles[1],
+                                euler_angles[2]])     # (Position x 3, rotation x 3)
+      self.height_data = np.array([msg.height])       # Single value for height
   
   def target_listener_callback(self, msg):
       #self.get_logger().info("Received target data")
@@ -116,6 +163,13 @@ class DroneAgent(Node):
         # Reset params for next train cycle
         self.DRLagent.reset_params()
         return
+  
+  def reset(self):
+     self.DRLagent.set_hypers(learn_rate=self.learning_rate,
+                             discount_fac=self.discount_factor,
+                             exp_prob=self.exploration_prob,
+                             exp_dec=self.exploration_prob)
+     return
   
   def decode_action(self):
      msg = DroneControl()
@@ -258,7 +312,7 @@ def main(args=None):
     rclpy.init(args=args)
     
     # Setting up an advantage values Neural Network model
-    total_feature_dimensions = 13
+    total_feature_dimensions = 10
     adv_model = keras.Sequential([
         keras.layers.Flatten(input_shape=(total_feature_dimensions,)),             # Input layer; The number of neurons is the same as the number of input parameters (obviously)
         keras.layers.Dense(128, activation='relu'),                                # Hidden layer after the input layer
@@ -270,7 +324,7 @@ def main(args=None):
               metrics=['accuracy'])                                                # Accuracy could be used as a metric
     
     # Setting up a state value Neural Network model
-    total_feature_dimensions = 13
+    total_feature_dimensions = 10
     stat_val_model = keras.Sequential([
         keras.layers.Flatten(input_shape=(total_feature_dimensions,)),             # Input layer; The number of neurons is the same as the number of input parameters (obviously)
         keras.layers.Dense(128, activation='relu'),                                # Hidden layer after the input layer

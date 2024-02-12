@@ -9,13 +9,10 @@ class Agent():
         # Setting up action variables
         self.action = np.array([False, False, False, False, False, False, False, False])            # Forward, Backward, Left, Right, Up, Down, Yaw left, Yaw Right
 
-        self.experience_buffer = np.array([np.zeros(24)])
+        self.experience_buffer = np.array([np.zeros(21)])
 
-        # Hyperparameters
-        self.learning_rate = 0.1
-        self.discount_factor = 0.5
-        self.exploration_prob = 0.5
-        self.exploration_decrease = 0.1
+        # Set hyperparameters
+        self.set_hypers()
 
         # Runtime parameters
         self.prev_state = None
@@ -112,6 +109,14 @@ class Agent():
         # Update current state and reward
         self.current_state = next_state
         self.current_reward = next_reward
+        return
+    
+    # Function to set agent's hyperparameters
+    def set_hypers(self, learn_rate=0.1, discount_fac=0.5, exp_prob=0.5, exp_dec=0.1):
+        self.learning_rate = learn_rate
+        self.discount_factor = discount_fac
+        self.exploration_prob = exp_prob
+        self.exploration_decrease = exp_dec
         return
 
     # Function to reset runtime parameters    
