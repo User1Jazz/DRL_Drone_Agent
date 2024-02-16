@@ -31,6 +31,8 @@ class Agent():
         self.target_adv_vals = None
         self.target_state_val = None
 
+        self.choice_maker = None
+
         # Setting up a Neural Network model(s)
         if _adv_net is not None:
             self.adv_net = _adv_net
@@ -47,10 +49,11 @@ class Agent():
     def choose_action(self):
         # Epsilon-greedy policy
         if np.random.rand() < self.exploration_prob:
-            self.exploration_prob -= self.exploration_decrease
             self.current_action = np.random.choice(len(self.action))
+            self.choice_maker = "[RANDOM]"
         else:
             self.current_action = np.argmax(self.q_values)
+            self.choice_maker = "[ESTIMATED]"
         return
      
     # Function to estimate advantage values
@@ -75,10 +78,15 @@ class Agent():
     
     # Function to calculate the target
     def calculate_target(self):
-        target_q_values = self.current_reward + self.discount_factor * self.current_adv_vals
-        target_state_value = self.current_reward + self.discount_factor * self.current_state_val
-        self.target_adv_vals = target_q_values
-        self.target_state_val = target_state_value
+        #target_q_values = self.current_reward + self.discount_factor * self.current_adv_vals
+        #target_state_value = self.current_reward + self.discount_factor * self.current_state_val
+        target_state_values = self.current_reward + self.discount_factor * self.prev_adv_val
+        target_adv_values = self.current_reward + self.discount_factor * self.current_state_val - self.prev_state_val
+        self.target_adv_vals = target_adv_values
+        self.target_state_val = np.array([target_state_values[0][np.argmax(self.current_adv_vals)]])
+        #print("Target state values: ", target_state_values)
+        #print("Target adv values: ", target_adv_values)
+        #print("Target state value: ", self.target_state_val)
         return
     
     # Function to update (fit) the networks    
@@ -110,6 +118,9 @@ class Agent():
         self.current_state = next_state
         self.current_reward = next_reward
         return
+    
+    def update_exploration_probability(self):
+        self.exploration_prob -= self.exploration_decrease
     
     # Function to set agent's hyperparameters
     def set_hypers(self, learn_rate=0.1, discount_fac=0.5, exp_prob=0.5, exp_dec=0.1):

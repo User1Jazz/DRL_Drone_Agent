@@ -73,13 +73,13 @@ class DroneAgent(Node):
     self.learning_rate = 0.1
     self.discount_factor = 0.5
     self.exploration_prob = 0.75
-    self.exploration_decrease = 0.05
+    self.exploration_decrease = 0.02
     # Setup the agent now!
     self.DRLagent = Agent(drone_id, _adv_net, _state_val_net)
     self.DRLagent.set_hypers(learn_rate=self.learning_rate,
                              discount_fac=self.discount_factor,
                              exp_prob=self.exploration_prob,
-                             exp_dec=self.exploration_prob)
+                             exp_dec=self.exploration_decrease)
 
   # Send drone control data
   def timer_callback(self):
@@ -88,7 +88,8 @@ class DroneAgent(Node):
       self.train()
     else:
        print("Preparing the agent...")
-       self.reset()
+       self.DRLagent.update_exploration_probability()
+       #self.reset()
        self.active = True
        print("Agent ready")
   
@@ -168,7 +169,7 @@ class DroneAgent(Node):
      self.DRLagent.set_hypers(learn_rate=self.learning_rate,
                              discount_fac=self.discount_factor,
                              exp_prob=self.exploration_prob,
-                             exp_dec=self.exploration_prob)
+                             exp_dec=self.exploration_decrease)
      return
   
   def decode_action(self):
@@ -176,7 +177,7 @@ class DroneAgent(Node):
 
      # IDLE
      if self.DRLagent.current_action == 0:
-        print("Selected action: IDLE")
+        print("Selected action: IDLE, ", self.DRLagent.choice_maker)
         msg.twist.linear.x = 0.0
         msg.twist.linear.y = 0.0
         msg.twist.linear.z = 0.0
@@ -186,7 +187,7 @@ class DroneAgent(Node):
 
      # FORWARD
      if self.DRLagent.current_action == 1:
-        print("Selected action: FORWARD")
+        print("Selected action: FORWARD, ", self.DRLagent.choice_maker)
         msg.twist.linear.x = 1.0
         msg.twist.linear.y = 0.0
         msg.twist.linear.z = 0.0
@@ -196,7 +197,7 @@ class DroneAgent(Node):
      
      # BACKWARD
      if self.DRLagent.current_action == 2:
-        print("Selected action: BACKWARD")
+        print("Selected action: BACKWARD, ", self.DRLagent.choice_maker)
         msg.twist.linear.x = -1.0
         msg.twist.linear.y = 0.0
         msg.twist.linear.z = 0.0
@@ -206,7 +207,7 @@ class DroneAgent(Node):
      
      # LEFT
      if self.DRLagent.current_action == 3:
-        print("Selected action: LEFT")
+        print("Selected action: LEFT, ", self.DRLagent.choice_maker)
         msg.twist.linear.x = 0.0
         msg.twist.linear.y = 1.0
         msg.twist.linear.z = 0.0
@@ -216,7 +217,7 @@ class DroneAgent(Node):
      
      # RIGHT
      if self.DRLagent.current_action == 4:
-        print("Selected action: RIGHT")
+        print("Selected action: RIGHT, ", self.DRLagent.choice_maker)
         msg.twist.linear.x = 0.0
         msg.twist.linear.y = -1.0
         msg.twist.linear.z = 0.0
@@ -226,7 +227,7 @@ class DroneAgent(Node):
      
      # UP
      if self.DRLagent.current_action == 5:
-        print("Selected action: UP")
+        print("Selected action: UP,", self.DRLagent.choice_maker)
         msg.twist.linear.x = 0.0
         msg.twist.linear.y = 0.0
         msg.twist.linear.z = 1.0
@@ -236,7 +237,7 @@ class DroneAgent(Node):
      
      # DOWN
      if self.DRLagent.current_action == 6:
-        print("Selected action: DOWN")
+        print("Selected action: DOWN, ", self.DRLagent.choice_maker)
         msg.twist.linear.x = 0.0
         msg.twist.linear.y = 0.0
         msg.twist.linear.z = -1.0
@@ -246,7 +247,7 @@ class DroneAgent(Node):
      
      # YAW LEFT
      if self.DRLagent.current_action == 7:
-        print("Selected action: YAW LEFT")
+        print("Selected action: YAW LEFT, ", self.DRLagent.choice_maker)
         msg.twist.linear.x = 0.0
         msg.twist.linear.y = 0.0
         msg.twist.linear.z = 0.0
@@ -256,7 +257,7 @@ class DroneAgent(Node):
      
      # YAW RIGHT
      if self.DRLagent.current_action == 8:
-        print("Selected action: YAW RIGHT")
+        print("Selected action: YAW RIGHT, ", self.DRLagent.choice_maker)
         msg.twist.linear.x = 0.0
         msg.twist.linear.y = 0.0
         msg.twist.linear.z = 0.0
@@ -320,8 +321,8 @@ def main(args=None):
         keras.layers.Dense(9, activation='softmax')                                # output layer (3); 9 output neurons (one for each action the drone can take)
     ])
     adv_model.compile(optimizer='adam',                                            # Adam optimisation algorithm (stochastic gradient descent)
-              loss='categorical_crossentropy',                                     # Categorical Crossentropy
-              metrics=['accuracy'])                                                # Accuracy could be used as a metric
+              loss='mse',                                     # Categorical Crossentropy
+              metrics=['mae'])                                                # Accuracy could be used as a metric
     
     # Setting up a state value Neural Network model
     total_feature_dimensions = 10
