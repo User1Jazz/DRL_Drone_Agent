@@ -9,7 +9,7 @@ class Agent():
         # Setting up action variables
         self.action = np.array([False, False, False, False, False, False, False, False])            # Forward, Backward, Left, Right, Up, Down, Yaw left, Yaw Right
 
-        self.experience_buffer = np.array([np.zeros(21)])
+        self.experience_buffer = np.array([np.zeros(22)])
 
         # Set hyperparameters
         self.set_hypers()

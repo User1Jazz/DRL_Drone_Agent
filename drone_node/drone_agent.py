@@ -65,6 +65,7 @@ class DroneAgent(Node):
     self.status_sent = False
     self.imu_data = np.zeros(6)
     self.height_data = np.zeros(1)
+    self.battery_percentage = np.zeros(0)
     self.target_position = np.zeros(3)
     self.reward = 0.0
     
@@ -119,8 +120,9 @@ class DroneAgent(Node):
                                 msg.world_position.z,
                                 euler_angles[0],
                                 euler_angles[1],
-                                euler_angles[2]])     # (Position x 3, rotation x 3)
-      self.height_data = np.array([msg.height])       # Single value for height
+                                euler_angles[2]])        # (Position x 3, rotation x 3)
+      self.height_data = np.array([msg.height])          # Single value for height
+      self.battery_percentage = np.array([msg.battery])  # Battery percentage (value from 0 to 1)
   
   def target_listener_callback(self, msg):
       #self.get_logger().info("Received target data")
@@ -132,7 +134,7 @@ class DroneAgent(Node):
 
   def train(self):
         # Get observation
-        next_state = np.array([np.concatenate([self.imu_data, self.height_data, self.target_position])])
+        next_state = np.array([np.concatenate([self.imu_data, self.height_data, self.battery_percentage, self.target_position])])
         next_reward = self.reward
         self.DRLagent.update_params(next_state, next_reward)
 
@@ -313,7 +315,7 @@ def main(args=None):
     rclpy.init(args=args)
     
     # Setting up an advantage values Neural Network model
-    total_feature_dimensions = 10
+    total_feature_dimensions = 11
     adv_model = keras.Sequential([
         keras.layers.Flatten(input_shape=(total_feature_dimensions,)),             # Input layer; The number of neurons is the same as the number of input parameters (obviously)
         keras.layers.Dense(128, activation='relu'),                                # Hidden layer after the input layer
@@ -325,7 +327,7 @@ def main(args=None):
               metrics=['mae'])                                                # Accuracy could be used as a metric
     
     # Setting up a state value Neural Network model
-    total_feature_dimensions = 10
+    total_feature_dimensions = 11
     stat_val_model = keras.Sequential([
         keras.layers.Flatten(input_shape=(total_feature_dimensions,)),             # Input layer; The number of neurons is the same as the number of input parameters (obviously)
         keras.layers.Dense(128, activation='relu'),                                # Hidden layer after the input layer
