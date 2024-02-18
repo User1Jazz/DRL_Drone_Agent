@@ -147,15 +147,17 @@ class DroneAgent(Node):
         # Perform an action
         #self.get_logger().info("Sending control data")
         self.i += 1
-        self.publisher_.publish(self.decode_action())
+        self.publisher_.publish(self.decode_action(verbose=True))
 
         # Store observation, action, and reward (AND state value) to the experience buffer
         self.DRLagent.store_experience()
 
         # Get observation (and reward)
-        next_state = np.array([np.concatenate([self.imu_data, self.height_data, self.target_position])])
+        next_state = np.array([np.concatenate([self.imu_data, self.height_data, self.battery_percentage, self.target_position])])
         next_reward = self.reward
         self.DRLagent.update_params(next_state, next_reward)
+        self.DRLagent.estimate_adv_values()
+        self.DRLagent.estimate_state_val()
 
         # Bellman equation
         self.DRLagent.calculate_target()
@@ -174,12 +176,13 @@ class DroneAgent(Node):
                              exp_dec=self.exploration_decrease)
      return
   
-  def decode_action(self):
+  def decode_action(self, verbose = True):
      msg = DroneControl()
 
      # IDLE
      if self.DRLagent.current_action == 0:
-        print("Selected action: IDLE, ", self.DRLagent.choice_maker)
+        if verbose:
+           print("Selected action: IDLE, ", self.DRLagent.choice_maker)
         msg.twist.linear.x = 0.0
         msg.twist.linear.y = 0.0
         msg.twist.linear.z = 0.0
@@ -189,7 +192,8 @@ class DroneAgent(Node):
 
      # FORWARD
      if self.DRLagent.current_action == 1:
-        print("Selected action: FORWARD, ", self.DRLagent.choice_maker)
+        if verbose:
+           print("Selected action: FORWARD, ", self.DRLagent.choice_maker)
         msg.twist.linear.x = 1.0
         msg.twist.linear.y = 0.0
         msg.twist.linear.z = 0.0
@@ -199,7 +203,8 @@ class DroneAgent(Node):
      
      # BACKWARD
      if self.DRLagent.current_action == 2:
-        print("Selected action: BACKWARD, ", self.DRLagent.choice_maker)
+        if verbose:
+           print("Selected action: BACKWARD, ", self.DRLagent.choice_maker)
         msg.twist.linear.x = -1.0
         msg.twist.linear.y = 0.0
         msg.twist.linear.z = 0.0
@@ -209,7 +214,8 @@ class DroneAgent(Node):
      
      # LEFT
      if self.DRLagent.current_action == 3:
-        print("Selected action: LEFT, ", self.DRLagent.choice_maker)
+        if verbose:
+           print("Selected action: LEFT, ", self.DRLagent.choice_maker)
         msg.twist.linear.x = 0.0
         msg.twist.linear.y = 1.0
         msg.twist.linear.z = 0.0
@@ -219,7 +225,8 @@ class DroneAgent(Node):
      
      # RIGHT
      if self.DRLagent.current_action == 4:
-        print("Selected action: RIGHT, ", self.DRLagent.choice_maker)
+        if verbose:
+           print("Selected action: RIGHT, ", self.DRLagent.choice_maker)
         msg.twist.linear.x = 0.0
         msg.twist.linear.y = -1.0
         msg.twist.linear.z = 0.0
@@ -229,7 +236,8 @@ class DroneAgent(Node):
      
      # UP
      if self.DRLagent.current_action == 5:
-        print("Selected action: UP,", self.DRLagent.choice_maker)
+        if verbose:
+           print("Selected action: UP,", self.DRLagent.choice_maker)
         msg.twist.linear.x = 0.0
         msg.twist.linear.y = 0.0
         msg.twist.linear.z = 1.0
@@ -239,7 +247,8 @@ class DroneAgent(Node):
      
      # DOWN
      if self.DRLagent.current_action == 6:
-        print("Selected action: DOWN, ", self.DRLagent.choice_maker)
+        if verbose:
+           print("Selected action: DOWN, ", self.DRLagent.choice_maker)
         msg.twist.linear.x = 0.0
         msg.twist.linear.y = 0.0
         msg.twist.linear.z = -1.0
@@ -249,7 +258,8 @@ class DroneAgent(Node):
      
      # YAW LEFT
      if self.DRLagent.current_action == 7:
-        print("Selected action: YAW LEFT, ", self.DRLagent.choice_maker)
+        if verbose:
+           print("Selected action: YAW LEFT, ", self.DRLagent.choice_maker)
         msg.twist.linear.x = 0.0
         msg.twist.linear.y = 0.0
         msg.twist.linear.z = 0.0
@@ -259,7 +269,8 @@ class DroneAgent(Node):
      
      # YAW RIGHT
      if self.DRLagent.current_action == 8:
-        print("Selected action: YAW RIGHT, ", self.DRLagent.choice_maker)
+        if verbose:
+           print("Selected action: YAW RIGHT, ", self.DRLagent.choice_maker)
         msg.twist.linear.x = 0.0
         msg.twist.linear.y = 0.0
         msg.twist.linear.z = 0.0
@@ -320,7 +331,7 @@ def main(args=None):
         keras.layers.Flatten(input_shape=(total_feature_dimensions,)),             # Input layer; The number of neurons is the same as the number of input parameters (obviously)
         keras.layers.Dense(128, activation='relu'),                                # Hidden layer after the input layer
         keras.layers.Dense(128, activation='relu'),                                # hidden layer (2); The number of neurons are chosen by us intuitivelly; RELU - "Rectified Linear Unit"
-        keras.layers.Dense(9, activation='softmax')                                # output layer (3); 9 output neurons (one for each action the drone can take)
+        keras.layers.Dense(9)                                                      # output layer (3); 9 output neurons (one for each action the drone can take)
     ])
     adv_model.compile(optimizer='adam',                                            # Adam optimisation algorithm (stochastic gradient descent)
               loss='mse',                                     # Categorical Crossentropy
@@ -332,7 +343,7 @@ def main(args=None):
         keras.layers.Flatten(input_shape=(total_feature_dimensions,)),             # Input layer; The number of neurons is the same as the number of input parameters (obviously)
         keras.layers.Dense(128, activation='relu'),                                # Hidden layer after the input layer
         keras.layers.Dense(128, activation='relu'),                                # hidden layer (2); The number of neurons are chosen by us intuitivelly; RELU - "Rectified Linear Unit"
-        keras.layers.Dense(1, activation='softmax')                                # output layer (3); 1 output neuron (for state value)
+        keras.layers.Dense(1)                                                      # output layer (3); 1 output neuron (for state value)
     ])
     stat_val_model.compile(optimizer='adam',                                       # Adam optimisation algorithm (stochastic gradient descent)
               loss='mse',                                                          # Mean Squared Error for Q-learning

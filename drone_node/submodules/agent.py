@@ -80,19 +80,31 @@ class Agent():
     def calculate_target(self):
         #target_q_values = self.current_reward + self.discount_factor * self.current_adv_vals
         #target_state_value = self.current_reward + self.discount_factor * self.current_state_val
-        target_state_values = self.current_reward + self.discount_factor * self.prev_adv_val
-        target_adv_values = self.current_reward + self.discount_factor * self.current_state_val - self.prev_state_val
-        self.target_adv_vals = target_adv_values
-        self.target_state_val = np.array([target_state_values[0][np.argmax(self.current_adv_vals)]])
-        #print("Target state values: ", target_state_values)
-        #print("Target adv values: ", target_adv_values)
+        target_state_value = np.average(self.current_reward + self.discount_factor * self.current_adv_vals[0])
+        target_adv_value = self.current_reward + self.discount_factor * self.current_state_val[0][0] - self.prev_state_val[0][0]
+        self.target_adv_vals = self.prev_adv_val
+        self.target_adv_vals[0][np.argmax(self.target_adv_vals)] = target_adv_value
+        self.target_state_val = np.array([target_state_value])
+        #print("Prev adv val: ", self.prev_adv_val)
+        #print("Current adv vals: ", self.current_adv_vals)
+        #print("Prev adv val: ", self.prev_adv_val)
+         #print("Current reward: ", self.current_reward)
+         #print("Discount factor: ", self.discount_factor)
+         #print("Max prev adv val: ", self.prev_adv_val[0][np.argmax(self.prev_adv_val)])
+        #print("Current state value: ", self.current_state_val[0][0])
+        #print("Target adv value: ", target_adv_value)
+        #print("Target adv values: ", self.target_adv_vals)
         #print("Target state value: ", self.target_state_val)
+         #print("Prev state val: ", self.prev_state_val)
+         #print("Current state val: ", self.current_state_val)
+         #print("Target state val: ", self.target_state_val)
+         #print("-----------")
         return
     
     # Function to update (fit) the networks    
     def update_networks(self, num_epoch):
         self.adv_net.fit(self.prev_state, self.target_adv_vals, epochs=num_epoch, verbose=0)
-        self.state_val_net.fit(self.prev_state, self.target_state_val, epochs=num_epoch, verbose=0)
+        self.state_val_net.fit(self.prev_state/100, self.target_state_val, epochs=num_epoch, verbose=0)
         return
     
     # Function to store the experience of a single train cycle
