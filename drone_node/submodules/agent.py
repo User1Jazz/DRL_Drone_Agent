@@ -9,7 +9,8 @@ class Agent():
         # Setting up action variables
         self.action = np.array([False, False, False, False, False, False, False, False])            # Forward, Backward, Left, Right, Up, Down, Yaw left, Yaw Right
 
-        self.experience_buffer = np.array([np.zeros(22)])
+        self.experience = np.array([np.array(np.zeros(11)),np.array(np.zeros(1)),np.array(np.zeros(1)),np.array(np.zeros(11))], dtype=object)
+        self.experience_buffer = np.array(np.array([self.experience]), dtype=object)
 
         # Set hyperparameters
         self.set_hypers()
@@ -32,6 +33,9 @@ class Agent():
         self.target_state_val = None
 
         self.choice_maker = None
+
+        self.no_exp = 0
+        self.exp_count = 0
 
         # Setting up a Neural Network model(s)
         if _adv_net is not None:
@@ -59,11 +63,13 @@ class Agent():
     # Function to estimate advantage values
     def estimate_adv_values(self):
         self.current_adv_vals = self.adv_net.predict(self.current_state.reshape(1, -1), verbose=0)
+        #print("Current adv vals: ", self.current_adv_vals)
         return
 
     # Function to estimate the state value    
     def estimate_state_val(self):
         self.current_state_val = self.state_val_net.predict(self.current_state.reshape(1,-1), verbose=0)
+        #print("Current state val: ", self.current_state_val)
         return
     
     # Returns the state value
@@ -76,41 +82,75 @@ class Agent():
         self.q_values = self.current_state_val + self.current_adv_vals - np.mean(self.current_adv_vals)
         return
     
-    # Function to calculate the target
+    # Function to calculate the target values
     def calculate_target(self):
-        #target_q_values = self.current_reward + self.discount_factor * self.current_adv_vals
-        #target_state_value = self.current_reward + self.discount_factor * self.current_state_val
-        target_state_value = np.average(self.current_reward + self.discount_factor * self.current_adv_vals[0])
-        target_adv_value = self.current_reward + self.discount_factor * self.current_state_val[0][0] - self.prev_state_val[0][0]
-        self.target_adv_vals = self.prev_adv_val
-        self.target_adv_vals[0][np.argmax(self.target_adv_vals)] = target_adv_value
+        target_state_value = self.current_reward + self.discount_factor * np.mean(self.q_values)
+        target_adv_values = self.q_values - self.current_adv_vals
+        self.target_adv_vals = target_adv_values
         self.target_state_val = np.array([target_state_value])
-        #print("Prev adv val: ", self.prev_adv_val)
-        #print("Current adv vals: ", self.current_adv_vals)
-        #print("Prev adv val: ", self.prev_adv_val)
-         #print("Current reward: ", self.current_reward)
-         #print("Discount factor: ", self.discount_factor)
-         #print("Max prev adv val: ", self.prev_adv_val[0][np.argmax(self.prev_adv_val)])
-        #print("Current state value: ", self.current_state_val[0][0])
-        #print("Target adv value: ", target_adv_value)
-        #print("Target adv values: ", self.target_adv_vals)
-        #print("Target state value: ", self.target_state_val)
-         #print("Prev state val: ", self.prev_state_val)
-         #print("Current state val: ", self.current_state_val)
-         #print("Target state val: ", self.target_state_val)
-         #print("-----------")
         return
     
     # Function to update (fit) the networks    
-    def update_networks(self, num_epoch):
-        self.adv_net.fit(self.prev_state, self.target_adv_vals, epochs=num_epoch, verbose=0)
-        self.state_val_net.fit(self.prev_state/100, self.target_state_val, epochs=num_epoch, verbose=0)
+    def update_networks(self, num_epoch, set_verbose=0):
+        self.adv_net.fit(self.prev_state.reshape(1,-1), self.target_adv_vals.reshape(1,-1), epochs=num_epoch, verbose=set_verbose)
+        self.state_val_net.fit(self.prev_state.reshape(1,-1), self.target_state_val.reshape(1,-1), epochs=num_epoch, verbose=set_verbose)
         return
     
-    # Function to store the experience of a single train cycle
+    def train(self, no_exp, verbose=0):
+        print("Optimisation in progress...")
+        # Sample no_exp experiences from experience replay buffer
+        sample_experience = None
+        if no_exp >= len(self.experience_buffer):
+            sample_experience = self.experience_buffer[np.random.choice(len(self.experience_buffer), size = len(self.experience_buffer), replace = True)]
+        else:
+            sample_experience = self.experience_buffer[np.random.choice(len(self.experience_buffer), size = no_exp, replace = True)]
+        # Update neural networks
+        for i in range(len(sample_experience)):
+            self.prev_state = sample_experience[i][0]       # Get s
+            self.current_action = sample_experience[i][1]   # Get a
+            self.current_reward = sample_experience[i][2]   # Get r
+            self.current_state = sample_experience[i][3]    # Get s'
+            #print("Prev state: ", self.prev_state)
+            #print("Current action: ", self.current_action)
+            #print("Current reward: ", self.current_reward)
+            #print("Current state: ", self.current_state)
+            self.estimate_state_val()                       # Estimate state value
+            self.estimate_adv_values()                      # Estimate advantage values
+            self.get_q_values()                             # Calculate Q values
+            self.calculate_target()                         # Calculate target state value and target advantage values
+            self.update_networks(1, set_verbose=verbose)    # Update networks
+        return
+    
+    # Function to store the experience of a single train cycle (e = (s, a, r, s'))
     def store_experience(self):
-        experience = np.concatenate((self.current_state, self.current_adv_vals, self.current_state_val, [np.array([self.current_reward])]), axis=1)
-        np.append(self.experience_buffer, experience, axis=0)
+        experience = np.array([np.array(np.zeros(11)),np.array(np.zeros(1)),np.array(np.zeros(1)),np.array(np.zeros(11))], dtype=object)
+        if self.exp_count >= self.replay_buffer_size:
+            self.exp_count = 0
+
+        # If first experience: store initial state twice
+        if self.prev_state is None:
+            experience[0] = self.current_state # Initial state as the current state
+            experience[1] = np.array([self.current_action])
+            experience[2] = np.array([self.current_reward])
+            experience[3] = self.current_state # Initial state as the next state
+            if self.no_exp < self.replay_buffer_size:
+                self.experience_buffer = np.append(self.experience_buffer, [experience], axis=0)
+            else:
+                #print("Buffer max size reached. Placing new experience to index ", self.exp_count)
+                self.experience_buffer[self.exp_count] = experience
+                self.exp_count += 1
+        else:
+            experience[0] = self.prev_state
+            experience[1] = self.current_action
+            experience[2] = np.array([self.current_reward])
+            experience[3] = self.current_state
+            if self.no_exp < self.replay_buffer_size:
+                self.experience_buffer = np.append(self.experience_buffer, [experience], axis=0)
+            else:
+                #print("Buffer max size reached. Placing new experience to index ", self.exp_count)
+                self.experience_buffer[self.exp_count] = experience
+                self.exp_count += 1
+        self.no_exp += 1
         return
 
     # Function to get the new input values and store the old ones
@@ -129,17 +169,20 @@ class Agent():
         # Update current state and reward
         self.current_state = next_state
         self.current_reward = next_reward
+        #print("New state: ", self.current_state)
+        #print("New reward: ", self.current_reward)
         return
     
     def update_exploration_probability(self):
         self.exploration_prob -= self.exploration_decrease
     
     # Function to set agent's hyperparameters
-    def set_hypers(self, learn_rate=0.1, discount_fac=0.5, exp_prob=0.5, exp_dec=0.1):
+    def set_hypers(self, replay_buffer_size = 200, learn_rate=0.1, discount_fac=0.5, exp_prob=0.5, exp_dec=0.1):
         self.learning_rate = learn_rate
         self.discount_factor = discount_fac
         self.exploration_prob = exp_prob
         self.exploration_decrease = exp_dec
+        self.replay_buffer_size = replay_buffer_size
         return
 
     # Function to reset runtime parameters    

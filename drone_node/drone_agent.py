@@ -68,6 +68,7 @@ class DroneAgent(Node):
     self.battery_percentage = np.zeros(0)
     self.target_position = np.zeros(3)
     self.reward = 0.0
+    self.started = False
     
     # Agent Hyperparameters
     self.id = drone_id
@@ -77,7 +78,8 @@ class DroneAgent(Node):
     self.exploration_decrease = 0.02
     # Setup the agent now!
     self.DRLagent = Agent(drone_id, _adv_net, _state_val_net)
-    self.DRLagent.set_hypers(learn_rate=self.learning_rate,
+    self.DRLagent.set_hypers(replay_buffer_size=500,
+                             learn_rate=self.learning_rate,
                              discount_fac=self.discount_factor,
                              exp_prob=self.exploration_prob,
                              exp_dec=self.exploration_decrease)
@@ -86,12 +88,16 @@ class DroneAgent(Node):
   def timer_callback(self):
     # Make sure the drone is acive and the simulator is ready
     if self.active and self.status_sent:
-      self.train()
+      self.run(save_experience=True,verbose=True)
     else:
        print("Preparing the agent...")
+       if self.started:
+          self.DRLagent.train(no_exp=10, verbose=2)
        self.DRLagent.update_exploration_probability()
        #self.reset()
        self.active = True
+       self.status_timer_callback()
+       self.started = True
        print("Agent ready")
   
   # Function to send the 'ready' signal to the simulator
@@ -115,13 +121,13 @@ class DroneAgent(Node):
   def sensor_listener_callback(self, msg):
       #self.get_logger().info("Received sensors data")
       euler_angles = self.quaternion_2_euler(msg.orientation)
-      self.imu_data = np.array([msg.world_position.x,
-                                msg.world_position.y,
-                                msg.world_position.z,
-                                euler_angles[0],
-                                euler_angles[1],
-                                euler_angles[2]])        # (Position x 3, rotation x 3)
-      self.height_data = np.array([msg.height])          # Single value for height
+      self.imu_data = np.array([(msg.world_position.x / 1000),
+                                (msg.world_position.y / 1000),
+                                (msg.world_position.z / 1000),
+                                (euler_angles[0] / 360),
+                                (euler_angles[1] / 360),
+                                (euler_angles[2] / 360)])        # (Position x 3, rotation x 3)
+      self.height_data = np.array([msg.height/100])          # Single value for height
       self.battery_percentage = np.array([msg.battery])  # Battery percentage (value from 0 to 1)
   
   def target_listener_callback(self, msg):
@@ -132,9 +138,9 @@ class DroneAgent(Node):
       #self.get_logger().info("Received reward data")
       self.reward = msg.data
 
-  def train(self):
+  def run(self, save_experience=False, verbose=False):
         # Get observation
-        next_state = np.array([np.concatenate([self.imu_data, self.height_data, self.battery_percentage, self.target_position])])
+        next_state = np.concatenate([self.imu_data, self.height_data, self.battery_percentage, self.target_position])
         next_reward = self.reward
         self.DRLagent.update_params(next_state, next_reward)
 
@@ -147,26 +153,11 @@ class DroneAgent(Node):
         # Perform an action
         #self.get_logger().info("Sending control data")
         self.i += 1
-        self.publisher_.publish(self.decode_action(verbose=True))
+        self.publisher_.publish(self.decode_action(verbose=verbose))
 
         # Store observation, action, and reward (AND state value) to the experience buffer
-        self.DRLagent.store_experience()
-
-        # Get observation (and reward)
-        next_state = np.array([np.concatenate([self.imu_data, self.height_data, self.battery_percentage, self.target_position])])
-        next_reward = self.reward
-        self.DRLagent.update_params(next_state, next_reward)
-        self.DRLagent.estimate_adv_values()
-        self.DRLagent.estimate_state_val()
-
-        # Bellman equation
-        self.DRLagent.calculate_target()
-        
-        # Update networks
-        self.DRLagent.update_networks(1)
-        
-        # Reset params for next train cycle
-        self.DRLagent.reset_params()
+        if save_experience:
+           self.DRLagent.store_experience()
         return
   
   def reset(self):
