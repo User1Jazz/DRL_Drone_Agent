@@ -75,10 +75,12 @@ class DroneAgent(Node):
     self.learning_rate = 0.1
     self.discount_factor = 0.5
     self.exploration_prob = 0.75
-    self.exploration_decrease = 0.02
+    self.exploration_decrease = 0.05
+    self.replay_buffer_size = 500
+    self.replay_batch_size = 100
     # Setup the agent now!
     self.DRLagent = Agent(drone_id, _adv_net, _state_val_net)
-    self.DRLagent.set_hypers(replay_buffer_size=500,
+    self.DRLagent.set_hypers(replay_buffer_size=self.replay_buffer_size,
                              learn_rate=self.learning_rate,
                              discount_fac=self.discount_factor,
                              exp_prob=self.exploration_prob,
@@ -92,7 +94,7 @@ class DroneAgent(Node):
     else:
        print("Preparing the agent...")
        if self.started:
-          self.DRLagent.train(no_exp=10, verbose=2)
+          self.DRLagent.train(no_exp=self.replay_batch_size, verbose=2)
        self.DRLagent.update_exploration_probability()
        #self.reset()
        self.active = True
@@ -121,13 +123,13 @@ class DroneAgent(Node):
   def sensor_listener_callback(self, msg):
       #self.get_logger().info("Received sensors data")
       euler_angles = self.quaternion_2_euler(msg.orientation)
-      self.imu_data = np.array([(msg.world_position.x / 1000),
-                                (msg.world_position.y / 1000),
-                                (msg.world_position.z / 1000),
-                                (euler_angles[0] / 360),
-                                (euler_angles[1] / 360),
-                                (euler_angles[2] / 360)])        # (Position x 3, rotation x 3)
-      self.height_data = np.array([msg.height/100])          # Single value for height
+      self.imu_data = np.array([(msg.world_position.x),
+                                (msg.world_position.y),
+                                (msg.world_position.z),
+                                (euler_angles[0]),
+                                (euler_angles[1]),
+                                (euler_angles[2])])        # (Position x 3, rotation x 3)
+      self.height_data = np.array([msg.height])          # Single value for height
       self.battery_percentage = np.array([msg.battery])  # Battery percentage (value from 0 to 1)
   
   def target_listener_callback(self, msg):
@@ -320,25 +322,25 @@ def main(args=None):
     total_feature_dimensions = 11
     adv_model = keras.Sequential([
         keras.layers.Flatten(input_shape=(total_feature_dimensions,)),             # Input layer; The number of neurons is the same as the number of input parameters (obviously)
-        keras.layers.Dense(128, activation='relu'),                                # Hidden layer after the input layer
-        keras.layers.Dense(128, activation='relu'),                                # hidden layer (2); The number of neurons are chosen by us intuitivelly; RELU - "Rectified Linear Unit"
+        keras.layers.Dense(256, activation='relu'),                                # Hidden layer after the input layer
+        keras.layers.Dense(256, activation='relu'),                                # hidden layer (2); The number of neurons are chosen by us intuitivelly; RELU - "Rectified Linear Unit"
         keras.layers.Dense(9)                                                      # output layer (3); 9 output neurons (one for each action the drone can take)
     ])
     adv_model.compile(optimizer='adam',                                            # Adam optimisation algorithm (stochastic gradient descent)
-              loss='mse',                                     # Categorical Crossentropy
-              metrics=['mae'])                                                # Accuracy could be used as a metric
+              loss='huber',                                     # Categorical Crossentropy
+              metrics=['mae', 'accuracy'])                                                # Accuracy could be used as a metric
     
     # Setting up a state value Neural Network model
     total_feature_dimensions = 11
     stat_val_model = keras.Sequential([
         keras.layers.Flatten(input_shape=(total_feature_dimensions,)),             # Input layer; The number of neurons is the same as the number of input parameters (obviously)
-        keras.layers.Dense(128, activation='relu'),                                # Hidden layer after the input layer
-        keras.layers.Dense(128, activation='relu'),                                # hidden layer (2); The number of neurons are chosen by us intuitivelly; RELU - "Rectified Linear Unit"
+        keras.layers.Dense(256, activation='relu'),                                # Hidden layer after the input layer
+        keras.layers.Dense(256, activation='relu'),                                # hidden layer (2); The number of neurons are chosen by us intuitivelly; RELU - "Rectified Linear Unit"
         keras.layers.Dense(1)                                                      # output layer (3); 1 output neuron (for state value)
     ])
     stat_val_model.compile(optimizer='adam',                                       # Adam optimisation algorithm (stochastic gradient descent)
-              loss='mse',                                                          # Mean Squared Error for Q-learning
-              metrics=['mae'])                                                     # Mean Absolute Error could be used as a metric
+              loss='huber',                                                          # Mean Squared Error for Q-learning
+              metrics=['mae', 'accuracy'])                                                     # Mean Absolute Error could be used as a metric
 
     drone_agent = DroneAgent(d_id, adv_model, stat_val_model)
 
