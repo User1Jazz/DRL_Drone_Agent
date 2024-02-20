@@ -81,7 +81,7 @@ class DroneAgent(Node):
     self.replay_batch_size = 100
     # Setup the agent now!
     #self.DRLagent = Agent(drone_id, _adv_net, _state_val_net)
-    self.DRLagent = DQNagent()
+    self.DRLagent = DQNagent(drone_id, deep_q_net=_adv_net)
     self.DRLagent.set_hypers(replay_buffer_size=self.replay_buffer_size,
                              learn_rate=self.learning_rate,
                              discount_fac=self.discount_factor,
