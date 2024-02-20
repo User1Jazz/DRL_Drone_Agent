@@ -13,6 +13,7 @@ from geometry_msgs.msg import Vector3
 from std_msgs.msg import Float32
 
 from .submodules.agent import Agent
+from .submodules.DQNagent import DQNagent
 
 class DroneAgent(Node):
   def __init__(self, drone_id, _adv_net = None, _state_val_net = None):
@@ -79,7 +80,8 @@ class DroneAgent(Node):
     self.replay_buffer_size = 500
     self.replay_batch_size = 100
     # Setup the agent now!
-    self.DRLagent = Agent(drone_id, _adv_net, _state_val_net)
+    #self.DRLagent = Agent(drone_id, _adv_net, _state_val_net)
+    self.DRLagent = DQNagent()
     self.DRLagent.set_hypers(replay_buffer_size=self.replay_buffer_size,
                              learn_rate=self.learning_rate,
                              discount_fac=self.discount_factor,
@@ -147,9 +149,7 @@ class DroneAgent(Node):
         self.DRLagent.update_params(next_state, next_reward)
 
         # Choose an action
-        self.DRLagent.estimate_adv_values()
-        self.DRLagent.estimate_state_val()
-        self.DRLagent.get_q_values()
+        self.DRLagent.estimate_q_values()
         self.DRLagent.choose_action()
 
         # Perform an action
