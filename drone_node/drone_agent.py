@@ -261,28 +261,6 @@ class DroneAgent(Node):
         msg.twist.angular.z = 1.0
      return msg
   
-  def quaternion_2_euler(self, quaternion):
-      """
-        Convert a quaternion into euler angles (roll, pitch, yaw)
-        roll is rotation around x in radians (counterclockwise)
-        pitch is rotation around y in radians (counterclockwise)
-        yaw is rotation around z in radians (counterclockwise)
-      """
-      t0 = +2.0 * (quaternion.w * quaternion.x + quaternion.y * quaternion.z)
-      t1 = +1.0 - 2.0 * (quaternion.x * quaternion.x +quaternion.y * quaternion.y)
-      roll_x = math.degrees(math.atan2(t0, t1))
-     
-      t2 = +2.0 * (quaternion.w * quaternion.y - quaternion.z * quaternion.x)
-      t2 = +1.0 if t2 > +1.0 else t2
-      t2 = -1.0 if t2 < -1.0 else t2
-      pitch_y = math.degrees(math.asin(t2))
-     
-      t3 = +2.0 * (quaternion.w * quaternion.z + quaternion.x * quaternion.y)
-      t4 = +1.0 - 2.0 * (quaternion.y * quaternion.y + quaternion.z * quaternion.z)
-      yaw_z = math.degrees(math.atan2(t3, t4))
-     
-      return [roll_x, pitch_y, yaw_z] # in degrees
-  
   def summary(self):
       print("---------------")
       print("Q Values:")

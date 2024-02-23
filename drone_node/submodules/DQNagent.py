@@ -1,6 +1,7 @@
 import numpy as np
 import tensorflow as tf
 from tensorflow import keras
+import random
 
 class DQNagent():
     def __init__(self, id, deep_q_net = None):
@@ -9,8 +10,8 @@ class DQNagent():
         # Setting up action variables
         self.action = np.array([False, False, False, False, False, False, False, False])            # Forward, Backward, Left, Right, Up, Down, Yaw left, Yaw Right
 
-        self.experience = np.array([np.array(np.zeros(11)),np.array(np.zeros(1)),np.array(np.zeros(1)),np.array(np.zeros(11))], dtype=object)
-        self.experience_buffer = np.array(np.array([self.experience]), dtype=object)
+        self.experience = [np.zeros((1,224,224,3)), np.zeros(1), np.zeros(1), np.zeros((1,224,224,3))]
+        self.experience_buffer = []
 
         # Set hyperparameters
         self.set_hypers()
@@ -69,11 +70,16 @@ class DQNagent():
         # Sample no_exp experiences from experience replay buffer
         sample_experience = None
         if no_exp >= len(self.experience_buffer):
-            sample_experience = self.experience_buffer[np.random.choice(len(self.experience_buffer), size = len(self.experience_buffer), replace = True)]
+            sample_experience = random.sample(self.experience_buffer, len(self.experience_buffer))
         else:
-            sample_experience = self.experience_buffer[np.random.choice(len(self.experience_buffer), size = no_exp, replace = True)]
+            sample_experience = random.sample(self.experience_buffer, no_exp)
         # Update neural networks
         for i in range(len(sample_experience)):
+            print("Selected experience:")
+            print("Previous state: ", sample_experience[i][0].shape)
+            print("Current action: ", sample_experience[i][1])
+            print("Current reward: ", sample_experience[i][2])
+            print("Current state: ", sample_experience[i][3].shape)
             self.prev_state = sample_experience[i][0]       # Get s
             self.current_action = sample_experience[i][1]   # Get a
             self.current_reward = sample_experience[i][2]   # Get r
@@ -85,7 +91,7 @@ class DQNagent():
     
     # Function to store the experience of a single train cycle (e = (s, a, r, s'))
     def store_experience(self):
-        experience = np.array([np.array(np.zeros(11)),np.array(np.zeros(1)),np.array(np.zeros(1)),np.array(np.zeros(11))], dtype=object)
+        experience = [np.zeros((1,224,224,3)), np.zeros(1), np.zeros(1), np.zeros((1,224,224,3))]
         if self.exp_count >= self.replay_buffer_size:
             self.exp_count = 0
 
@@ -96,7 +102,7 @@ class DQNagent():
             experience[2] = np.array([self.current_reward])
             experience[3] = self.current_state # Initial state as the next state
             if self.no_exp < self.replay_buffer_size:
-                self.experience_buffer = np.append(self.experience_buffer, [experience], axis=0)
+                self.experience_buffer.append(experience)
             else:
                 self.experience_buffer[self.exp_count] = experience
                 self.exp_count += 1
@@ -106,7 +112,7 @@ class DQNagent():
             experience[2] = np.array([self.current_reward])
             experience[3] = self.current_state
             if self.no_exp < self.replay_buffer_size:
-                self.experience_buffer = np.append(self.experience_buffer, [experience], axis=0)
+                self.experience_buffer.append(experience)
             else:
                 self.experience_buffer[self.exp_count] = experience
                 self.exp_count += 1
