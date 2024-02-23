@@ -1,7 +1,6 @@
 import numpy as np
 from tensorflow import keras
 import math
-import cv2
 
 # ROS2 dependencies
 import rclpy
@@ -13,10 +12,11 @@ from drone_sim_messages.msg import DroneStatus
 from geometry_msgs.msg import Vector3
 from std_msgs.msg import Float32
 
+from .submodules.agent import Agent
 from .submodules.DQNagent import DQNagent
 
 class DroneAgent(Node):
-  def __init__(self, drone_id, _dqn = None):
+  def __init__(self, drone_id, _adv_net = None, _state_val_net = None):
     # ROS2 Setup BELOW!
     super().__init__('drone_agent')    
     # Publishing stuff
@@ -38,6 +38,13 @@ class DroneAgent(Node):
          self.sensor_listener_callback,
          10)
     self.sens_sub  # prevent unused variable warning
+    sub_topic = "/" + drone_id + "/target"
+    self.tgt_sub = self.create_subscription(
+         Vector3,
+         sub_topic,
+         self.target_listener_callback,
+         10)
+    self.tgt_sub
     sub_topic = "/" + drone_id + "/reward"
     self.rwrd_sub = self.create_subscription(
          Float32,
@@ -57,7 +64,10 @@ class DroneAgent(Node):
     # Setup runtime vars
     self.active = False
     self.status_sent = False
-    self.camera_data = None
+    self.imu_data = np.zeros(6)
+    self.height_data = np.zeros(1)
+    self.battery_percentage = np.zeros(0)
+    self.target_position = np.zeros(3)
     self.reward = 0.0
     self.started = False
     
@@ -71,7 +81,7 @@ class DroneAgent(Node):
     self.replay_batch_size = 100
     # Setup the agent now!
     #self.DRLagent = Agent(drone_id, _adv_net, _state_val_net)
-    self.DRLagent = DQNagent(drone_id, deep_q_net= _dqn)
+    self.DRLagent = DQNagent(drone_id, deep_q_net=_adv_net)
     self.DRLagent.set_hypers(replay_buffer_size=self.replay_buffer_size,
                              learn_rate=self.learning_rate,
                              discount_fac=self.discount_factor,
@@ -114,26 +124,27 @@ class DroneAgent(Node):
   # Listen to incoming data; This function should update the observation data
   def sensor_listener_callback(self, msg):
       #self.get_logger().info("Received sensors data")
-
-      # Direct conversion to CV2 (decode the image)
-      np_arr = np.frombuffer(msg.camera_image, np.uint8)
-      decoded_image = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
-      
-      input_size = (224, 224) # This should be provided by the sim!
-
-      resized_image = cv2.resize(decoded_image, input_size) # Resize image
-      normalized_image = resized_image / 255.0  # Normalize pixel values to [0, 1]
-
-      self.camera_data = np.expand_dims(normalized_image, axis=3)
-      self.camera_data = np.transpose(self.camera_data, (3, 0, 1, 2))
-     
+      euler_angles = self.quaternion_2_euler(msg.orientation)
+      self.imu_data = np.array([(msg.world_position.x),
+                                (msg.world_position.y),
+                                (msg.world_position.z),
+                                (euler_angles[0]),
+                                (euler_angles[1]),
+                                (euler_angles[2])])        # (Position x 3, rotation x 3)
+      self.height_data = np.array([msg.height])          # Single value for height
+      self.battery_percentage = np.array([msg.battery])  # Battery percentage (value from 0 to 1)
+  
+  def target_listener_callback(self, msg):
+      #self.get_logger().info("Received target data")
+      self.target_position = np.array([msg.x, msg.y, msg.z])  # X, Y and Z coordinates for target position
+   
   def reward_listener_callback(self, msg):
       #self.get_logger().info("Received reward data")
       self.reward = msg.data
 
   def run(self, save_experience=False, verbose=False):
         # Get observation
-        next_state = self.camera_data
+        next_state = np.concatenate([self.imu_data, self.height_data, self.battery_percentage, self.target_position])
         next_reward = self.reward
         self.DRLagent.update_params(next_state, next_reward)
 
@@ -300,29 +311,29 @@ def main(args=None):
     
     # Setting up an advantage values Neural Network model
     total_feature_dimensions = 11
+    adv_model = keras.Sequential([
+        keras.layers.Flatten(input_shape=(total_feature_dimensions,)),             # Input layer; The number of neurons is the same as the number of input parameters (obviously)
+        keras.layers.Dense(256, activation='relu'),                                # Hidden layer after the input layer
+        keras.layers.Dense(256, activation='relu'),                                # hidden layer (2); The number of neurons are chosen by us intuitivelly; RELU - "Rectified Linear Unit"
+        keras.layers.Dense(9)                                                      # output layer (3); 9 output neurons (one for each action the drone can take)
+    ])
+    adv_model.compile(optimizer='adam',                                            # Adam optimisation algorithm (stochastic gradient descent)
+              loss='huber',                                     # Categorical Crossentropy
+              metrics=['mae', 'accuracy'])                                                # Accuracy could be used as a metric
     
-    dqn = keras.models.Sequential()
-    dqn.add(keras.layers.Conv2D(224, (3, 3), activation='relu', input_shape=(224, 224, 3))) # The input shape of our data will be 224, 224, 3 and we will process 224 filters of size 3x3 over our input data. We will
-    # also apply the activation function relu to the output of each convolution operation.
-    
-    dqn.add(keras.layers.MaxPooling2D((2, 2))) # This layer will perform the max pooling operation using 2x2 samples and a stride of 2.
-    
-    # The next set of layers do very similar things but take as input the feature map from the previous layer. They also increase the frequency of filters from 32 to 64. We can do this as our data shrinks
-    # in spacial dimensions as it passed through the layers, meaning we can afford (computationally) to add more depth.
-    dqn.add(keras.layers.Conv2D(64, (3, 3), activation='relu'))
-    dqn.add(keras.layers.MaxPooling2D((2, 2)))
-    dqn.add(keras.layers.Conv2D(64, (3, 3), activation='relu'))
-    
-    dqn.add(keras.layers.Flatten())
-    dqn.add(keras.layers.Dense(64, activation='relu'))
-    dqn.add(keras.layers.Dense(9))
+    # Setting up a state value Neural Network model
+    total_feature_dimensions = 11
+    stat_val_model = keras.Sequential([
+        keras.layers.Flatten(input_shape=(total_feature_dimensions,)),             # Input layer; The number of neurons is the same as the number of input parameters (obviously)
+        keras.layers.Dense(256, activation='relu'),                                # Hidden layer after the input layer
+        keras.layers.Dense(256, activation='relu'),                                # hidden layer (2); The number of neurons are chosen by us intuitivelly; RELU - "Rectified Linear Unit"
+        keras.layers.Dense(1)                                                      # output layer (3); 1 output neuron (for state value)
+    ])
+    stat_val_model.compile(optimizer='adam',                                       # Adam optimisation algorithm (stochastic gradient descent)
+              loss='huber',                                                          # Mean Squared Error for Q-learning
+              metrics=['mae', 'accuracy'])                                                     # Mean Absolute Error could be used as a metric
 
-    dqn.compile(optimizer="adam",
-                loss="huber",
-                metrics=['mae'])
-
-
-    drone_agent = DroneAgent(drone_id=d_id, _dqn=dqn)
+    drone_agent = DroneAgent(d_id, adv_model, stat_val_model)
 
     try:
       rclpy.spin(drone_agent)
