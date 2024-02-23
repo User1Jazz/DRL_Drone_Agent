@@ -51,7 +51,7 @@ class DQNagent():
     
     # Function to estimate the q values
     def estimate_q_values(self):
-        self.current_q_values = self.deep_q_net.predict(self.current_state.reshape(1,-1), verbose=0)
+        self.current_q_values = self.deep_q_net.predict(self.current_state, verbose=0)
         return
     
     # Function to calculate the target Q values using the Bellman equation: Q(s,a)target = R + y * mean(Q(s,a))
@@ -61,7 +61,7 @@ class DQNagent():
     
     # Function to update (fit) the networks
     def update_networks(self, num_epoch, current_state, target_q_values, set_verbose=0):
-        self.deep_q_net.fit(current_state.reshape(1,-1), target_q_values.reshape(1,-1), epochs=num_epoch, verbose=set_verbose)
+        self.deep_q_net.fit(current_state, target_q_values, epochs=num_epoch, verbose=set_verbose)
         return
     
     def train(self, no_exp, verbose=0):
