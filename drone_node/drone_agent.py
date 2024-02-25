@@ -45,7 +45,7 @@ class DroneAgent(Node):
       self.active = False
       self.status_sent = False
 
-      self.state = np.zeros((1,224,224,3))
+      self.state = np.zeros((1,84,84,1))
       self.action = 0
       self.reward = 0
       self.done = 0
@@ -58,7 +58,7 @@ class DroneAgent(Node):
    # Function to send control data (and train the agent)
    def control_timer_callback(self):
       if self.active and self.status_sent:
-         self.agent.run(update_network=True, store_experience=True, verbose=2)
+         self.agent.run(update_network=True, store_experience=True, verbose=0)
       else:
          print("Preparing the agent...")
          self.agent.train(no_exp=100, verbose=2)
@@ -83,15 +83,15 @@ class DroneAgent(Node):
    def sensor_listener_callback(self, msg):
       # Direct conversion to CV2 (decode the image)
       np_arr = np.frombuffer(msg.camera_image, np.uint8)
-      decoded_image = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+      decoded_image = cv2.imdecode(np_arr, cv2.IMREAD_GRAYSCALE)
       
-      input_size = (224, 224) # This should be provided by the sim
+      input_size = (84,84) # This should be provided by the sim
       
       resized_image = cv2.resize(decoded_image, input_size) # Resize the image
       normalized_image = resized_image / 255.0              # Normalize pixel values to range [0,1]
       
-      self.state = np.expand_dims(normalized_image, axis=3)
-      self.state = np.transpose(self.state, (3,0,1,2))
+      self.state = np.expand_dims(normalized_image, axis=1)
+      self.state = np.transpose(self.state, (1,0,2))
       return
    
    # Function to get reward value
@@ -115,7 +115,7 @@ class DroneAgent(Node):
       msg = DroneControl()
       #IDLE
       if self.agent.current_action == 0:
-         if verbose > 0:
+         if verbose > -1:
             print("Selected action: IDLE, ", self.agent.choice_maker)
          msg.twist.linear.x = 0.0
          msg.twist.linear.y = 0.0
@@ -125,7 +125,7 @@ class DroneAgent(Node):
          msg.twist.angular.z = 0.0
       #FORWARD
       if self.agent.current_action == 1:
-         if verbose > 0:
+         if verbose > -1:
             print("Selected action: FORWARD, ", self.agent.choice_maker)
          msg.twist.linear.x = 1.0
          msg.twist.linear.y = 0.0
@@ -135,7 +135,7 @@ class DroneAgent(Node):
          msg.twist.angular.z = 0.0
       #BACKWARD
       if self.agent.current_action == 2:
-         if verbose > 0:
+         if verbose > -1:
             print("Selected action: BACKWARD, ", self.agent.choice_maker)
          msg.twist.linear.x = -1.0
          msg.twist.linear.y = 0.0
@@ -145,7 +145,7 @@ class DroneAgent(Node):
          msg.twist.angular.z = 0.0
       #LEFT
       if self.agent.current_action == 3:
-         if verbose > 0:
+         if verbose > -1:
             print("Selected action: LEFT, ", self.agent.choice_maker)
          msg.twist.linear.x = 0.0
          msg.twist.linear.y = 1.0
@@ -155,7 +155,7 @@ class DroneAgent(Node):
          msg.twist.angular.z = 0.0
       #RIGHT
       if self.agent.current_action == 4:
-         if verbose > 0:
+         if verbose > -1:
             print("Selected action: RIGHT, ", self.agent.choice_maker)
          msg.twist.linear.x = 0.0
          msg.twist.linear.y = -1.0
@@ -165,7 +165,7 @@ class DroneAgent(Node):
          msg.twist.angular.z = 0.0
       #UP
       if self.agent.current_action == 5:
-         if verbose > 0:
+         if verbose > -1:
             print("Selected action: UP, ", self.agent.choice_maker)
          msg.twist.linear.x = 0.0
          msg.twist.linear.y = 0.0
@@ -175,7 +175,7 @@ class DroneAgent(Node):
          msg.twist.angular.z = 0.0
       #DOWN
       if self.agent.current_action == 6:
-         if verbose > 0:
+         if verbose > -1:
             print("Selected action: DOWN, ", self.agent.choice_maker)
          msg.twist.linear.x = 0.0
          msg.twist.linear.y = 0.0
@@ -185,7 +185,7 @@ class DroneAgent(Node):
          msg.twist.angular.z = 0.0
       #YAW LEFT
       if self.agent.current_action == 7:
-         if verbose > 0:
+         if verbose > -1:
             print("Selected action: YAW LEFT, ", self.agent.choice_maker)
          msg.twist.linear.x = 0.0
          msg.twist.linear.y = 0.0
@@ -195,7 +195,7 @@ class DroneAgent(Node):
          msg.twist.angular.z = -1.0
       #YAW RIGHT
       if self.agent.current_action == 8:
-         if verbose > 0:
+         if verbose > -1:
             print("Selected action: YAW RIGHT, ", self.agent.choice_maker)
          msg.twist.linear.x = 0.0
          msg.twist.linear.y = 0.0
@@ -225,8 +225,7 @@ def main(args=None):
    d_id = input("Drone ID please: ")
 
    dqn = keras.models.Sequential()
-   dqn.add(keras.layers.Conv2D(224, (6,6), activation='relu', input_shape=(224,224,3)))
-   dqn.add(keras.layers.MaxPooling2D((2,2)))
+   dqn.add(keras.layers.Conv2D(32, (6,6), activation='relu', input_shape=(84,84,1)))
    dqn.add(keras.layers.Conv2D(64, (4,4), activation='relu'))
    dqn.add(keras.layers.Flatten())
    dqn.add(keras.layers.Dense(25, activation='relu'))

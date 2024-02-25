@@ -24,6 +24,7 @@ class DQN():
         self.compile_networks()     # Compile the networks
         self.choice_maker = "[UNKNOWN]"
         self.exp_count = 0          # Initialize experience counter
+        self.target_update_count = 0# Initialize counter that counts to next update of the target q network
         return
     
     # Function to estimate the q values using the main Q network
@@ -62,9 +63,13 @@ class DQN():
         target_weights = self.target_net.get_weights()                                          # Get current target net weights
         online_weights = self.main_net.get_weights()                                            # Get current main net weights
         # Apply soft update
-        for i in range(len(target_weights)):
-            target_weights[i] = (1-self.tau) * target_weights[i] + self.tau * online_weights[i]
-        self.target_net.set_weights(target_weights)
+        self.target_update_count += 1
+        if self.target_update_count == self.target_q_update_frequency:
+            print("Updating target q network...")
+            for i in range(len(target_weights)):
+                target_weights[i] = (1-self.tau) * target_weights[i] + self.tau * online_weights[i]
+            self.target_net.set_weights(target_weights)
+            self.target_update_count = 0
         return
     
     # Function to update runtime variables
@@ -93,12 +98,13 @@ class DQN():
         self.update_state(self.agent.state, self.agent.action, self.agent.reward, self.agent.done)              # Get observation
         self.choose_action()
         self.agent.decode_action(verbose=verbose)                                                               # Choose action
-        if update_network:
+        if update_network or store_experience:
             time.sleep(0.1) # Wait a little bit for changes
             self.update_state(self.agent.state, self.agent.action, self.agent.reward, self.agent.done)          # Get observation
+        if update_network:
             self.update_main_net(verbose=verbose)                                                               # Update main net
-            if store_experience:
-                self.store_experience()                                                                         # Store experience
+        if store_experience:
+            self.store_experience()                                                                             # Store experience
         return
     
     # Function to train the Q networks from the experience buffer
@@ -121,10 +127,11 @@ class DQN():
         return
     
     # Function to set the hyperparameters
-    def set_hyperparams(self, no_actions = 1, experience_buffer_size = 500, learning_rate=0.001, metrics=None, discount_factor=0.5, exploration_probability= 0.5, tau=0.001):
+    def set_hyperparams(self, no_actions = 1, experience_buffer_size = 500, target_q_update_frequency = 5, learning_rate=0.001, metrics=None, discount_factor=0.5, exploration_probability= 0.5, tau=0.001):
         self.no_actions = no_actions
         self.experience_buffer_size = experience_buffer_size
-        self.optimizer = keras.optimizers.Adam(learning_rate=learning_rate)
+        self.target_q_update_frequency = target_q_update_frequency
+        self.optimizer = keras.optimizers.SGD(learning_rate=learning_rate)
         self.metrics = metrics
         self.discount_factor = discount_factor
         self.exploration_probability = exploration_probability
