@@ -64,6 +64,8 @@ class DroneAgent(Node):
          self.agent.train(no_exp=100, verbose=2)
          self.agent.decrease_exploration_probability(decrease_factor=0.05)
          self.active = True
+         self.status_timer_callback()
+         print("Agent ready")
       return
    
    # Function to send drone agent status
@@ -223,11 +225,11 @@ def main(args=None):
    d_id = input("Drone ID please: ")
 
    dqn = keras.models.Sequential()
-   dqn.add(keras.layers.Conv2D(32, (8,8), activation='relu', input_shape=(224,224,3)))
+   dqn.add(keras.layers.Conv2D(224, (6,6), activation='relu', input_shape=(224,224,3)))
+   dqn.add(keras.layers.MaxPooling2D((2,2)))
    dqn.add(keras.layers.Conv2D(64, (4,4), activation='relu'))
-   dqn.add(keras.layers.Conv2D(64, (3,3), activation='relu'))
    dqn.add(keras.layers.Flatten())
-   dqn.add(keras.layers.Dense(64), activation='relu')
+   dqn.add(keras.layers.Dense(25, activation='relu'))
    dqn.add(keras.layers.Dense(9))
 
    rclpy.init(args=args)
