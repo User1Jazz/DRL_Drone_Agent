@@ -2,6 +2,7 @@ import numpy as np
 import random
 import time
 from tensorflow import keras
+import keras.backend as K
 
 class DQN():
     def __init__(self, agent=None, main_net=None, target_net=None):
@@ -136,8 +137,8 @@ class DQN():
     
     # Function to compile networks
     def compile_networks(self):
-        self.main_net.compile(optimizer=self.optimizer, loss="mse", metrics=self.metrics)
-        self.target_net.compile(optimizer=self.optimizer, loss="mse", metrics=self.metrics)
+        self.main_net.compile(optimizer=self.optimizer, loss=loss_with_entropy(alpha=0.01, temperature=1.0), metrics=self.metrics)
+        self.target_net.compile(optimizer=self.optimizer, loss=loss_with_entropy(alpha=0.01, temperature=1.0), metrics=self.metrics)
         return
     
     # Function to save the main and target Q networks to a file
@@ -159,3 +160,12 @@ class DQN():
             self.target_net = keras.models.load_model(target_path)
             print("Target Q network loaded")
         return
+
+def loss_with_entropy(alpha=0.01, temperature=1.0):
+    def loss(y_true, y_pred):
+        mse_loss = K.mean(K.square(y_true - y_pred))
+        action_probs = K.softmax(y_pred / temperature)
+        entropy = -K.sum(action_probs * K.log(action_probs + 0.000001))
+        total_loss = mse_loss + alpha * entropy
+        return total_loss
+    return loss
