@@ -35,6 +35,7 @@ class DQNagent():
         # Setting up a Neural Network model(s)
         if deep_q_net is not None:
             self.deep_q_net = deep_q_net
+            self.target_net = deep_q_net # target network is the same as the online net (on start at least)
         else:
             print("Deep Q Network not set")
             exit()
@@ -42,27 +43,34 @@ class DQNagent():
     
     def choose_action(self):
         # Epsilon-greedy policy
-        if np.random.rand() < self.exploration_prob:
-            self.current_action = np.random.choice(len(self.action))
-            self.choice_maker = "[RANDOM]"
-        else:
+        #if np.random.rand() < self.exploration_prob:
+        #    self.current_action = np.random.choice(len(self.action))
+        #    self.choice_maker = "[RANDOM]"
+        #else:
             self.current_action = np.argmax(self.current_q_values)
             self.choice_maker = "[ESTIMATED]"
-        return
+        #return
     
     # Function to estimate the q values
     def estimate_q_values(self):
         self.current_q_values = self.deep_q_net.predict(self.current_state, verbose=0)
         return
     
-    # Function to calculate the target Q values using the Bellman equation: Q(s,a)target = R + y * mean(Q(s,a))
-    def calculate_target_q(self, reward, discount_factor, q_values):
-        self.target_q_values = reward + discount_factor * np.mean(q_values)
+    # Function to calculate the target Q values using the target network
+    def calculate_target_q(self):
+        self.target_q_values = self.target_net.predict(self.current_state, verbose=0)
         return
     
     # Function to update (fit) the networks
-    def update_networks(self, num_epoch, current_state, target_q_values, set_verbose=0):
+    def update_networks(self, num_epoch, current_state, target_q_values, update_target=True, set_verbose=0):
         self.deep_q_net.fit(current_state, target_q_values, epochs=num_epoch, verbose=set_verbose)
+        # Update target network
+        if update_target:
+            target_weights = self.target_net.get_weights()
+            online_weights = self.deep_q_net.get_weights()
+            for i in range(len(target_weights)):
+                target_weights[i] = (1-self.tau) * target_weights[i] + self.tau * online_weights[i]
+            self.target_net.set_weights(target_weights)
         return
     
     def train(self, no_exp, verbose=0):
@@ -85,8 +93,8 @@ class DQNagent():
             self.current_reward = sample_experience[i][2]   # Get r
             self.current_state = sample_experience[i][3]    # Get s'
             self.estimate_q_values()                        # Estimate Q values
-            self.calculate_target_q(self.current_reward, self.discount_factor, self.current_q_values)                       # Calculate target Q values
-            self.update_networks(1, self.prev_state, self.target_q_values, set_verbose=verbose)    # Update networks
+            self.calculate_target_q()                       # Calculate target Q values
+            self.update_networks(1, self.prev_state, self.target_q_values, update_target=True, set_verbose=verbose)    # Update networks
         return
     
     # Function to store the experience of a single train cycle (e = (s, a, r, s'))
@@ -139,12 +147,13 @@ class DQNagent():
         self.exploration_prob -= self.exploration_decrease
     
     # Function to set agent's hyperparameters
-    def set_hypers(self, replay_buffer_size = 200, learn_rate=0.1, discount_fac=0.5, exp_prob=0.5, exp_dec=0.1):
+    def set_hypers(self, replay_buffer_size = 200, learn_rate=0.1, discount_fac=0.5, exp_prob=0.5, exp_dec=0.1, tau=0.001):
         self.learning_rate = learn_rate
         self.discount_factor = discount_fac
         self.exploration_prob = exp_prob
         self.exploration_decrease = exp_dec
         self.replay_buffer_size = replay_buffer_size
+        self.tau = tau
         return
 
     # Function to reset runtime parameters    
