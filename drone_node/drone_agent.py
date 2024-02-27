@@ -14,6 +14,7 @@ from geometry_msgs.msg import Vector3
 from std_msgs.msg import Float32
 
 from .submodules.DQN import DQN
+from .submodules.DoubleDQN import DoubleDQN
 
 class DroneAgent(Node):
    def __init__(self, drone_id, _dqn = None):
@@ -50,7 +51,7 @@ class DroneAgent(Node):
       self.reward = 0
       self.done = 0
 
-      self.agent = DQN(agent=self, main_net=_dqn, target_net=_dqn)
+      self.agent = DoubleDQN(agent=self, main_net=_dqn, target_net=_dqn)
       self.agent.set_hyperparams(no_actions=9, experience_buffer_size=500, learning_rate=0.01, metrics=['mae'], discount_factor=0.5, exploration_probability=0.5, tau=0.001)
       self.agent.compile_networks()
       return
@@ -58,7 +59,7 @@ class DroneAgent(Node):
    # Function to send control data (and train the agent)
    def control_timer_callback(self):
       if self.active and self.status_sent:
-         self.agent.run(update_network=True, store_experience=True, verbose=0)
+         self.agent.run(update_network=False, store_experience=True, verbose=0)
       else:
          print("Preparing the agent...")
          self.agent.train(no_exp=100, verbose=2)

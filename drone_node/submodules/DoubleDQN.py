@@ -4,7 +4,7 @@ import time
 from tensorflow import keras
 import keras.backend as K
 
-class DQN():
+class DoubleDQN():
     def __init__(self, agent=None, main_net=None, target_net=None):
         # Make sure the required parameters are provided
         if agent == None:
@@ -53,9 +53,11 @@ class DQN():
     
     # Function to update the main Q network using the target Q network
     def update_main_net(self, verbose=0):
-        self.estimate_target_q_values(self.current_state)                                                                               # Estimate Q values
-        self.target_q_values = np.array([self.current_reward + self.discount_factor * (1-self.done) * np.max(self.target_q_values)])    # Calculate Q values using Bellman equation
-        self.main_net.fit(self.previous_state, self.target_q_values, epochs=1, verbose=verbose)                                         # Update main network
+        self.estimate_target_q_values(self.current_state)                                                                                    # Estimate target Q values
+        self.estimate_q_values(self.previous_state)                                                                                          # Estimate Q values
+        self.target_q_values[np.arange(len(self.target_q_values)), np.argmax(self.q_values, axis=1)] = 0                                       # Update target Q values using the action selected by the main Q net
+        self.target_q_values = np.array([self.current_reward + self.discount_factor * (1-self.done) * np.max(self.target_q_values, axis=1)]) # Calculate Q values using Bellman equation
+        self.main_net.fit(self.previous_state, self.target_q_values, epochs=1, verbose=verbose)                                              # Update main network
         return
     
     # Function to update the target Q network
