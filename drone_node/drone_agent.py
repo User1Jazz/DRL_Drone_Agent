@@ -15,6 +15,7 @@ from std_msgs.msg import Float32
 
 from .submodules.DQN import DQN
 from .submodules.DoubleDQN import DoubleDQN
+from .submodules.DuelingNet import DuelingNet
 
 class DroneAgent(Node):
    def __init__(self, drone_id, _dqn = None):
