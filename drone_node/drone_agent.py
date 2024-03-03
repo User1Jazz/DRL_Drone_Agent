@@ -55,6 +55,7 @@ class DroneAgent(Node):
       self.agent = DoubleDQN(agent=self, main_net=_dqn, target_net=_dqn)
       self.agent.set_hyperparams(no_actions=9, experience_buffer_size=500, learning_rate=0.01, metrics=['mae'], discount_factor=0.5, exploration_probability=0.5, tau=0.001)
       self.agent.compile_networks()
+      self.agent.main_net.summary()
       return
    
    # Function to send control data (and train the agent)
@@ -226,12 +227,13 @@ class DroneAgent(Node):
 def main(args=None):
    d_id = input("Drone ID please: ")
 
-   dqn = keras.models.Sequential()
-   dqn.add(keras.layers.Conv2D(32, (6,6), activation='relu', input_shape=(84,84,1)))
-   dqn.add(keras.layers.Conv2D(64, (4,4), activation='relu'))
-   dqn.add(keras.layers.Flatten())
-   dqn.add(keras.layers.Dense(25, activation='relu'))
-   dqn.add(keras.layers.Dense(9))
+   dqn = DuelingNet(num_actions=9, input_shape=(84,84,1))
+   #dqn = keras.models.Sequential()
+   dqn.add(keras.layers.Conv2D(32, (6,6), activation='relu', name="conv_1"))
+   dqn.add(keras.layers.Conv2D(64, (4,4), activation='relu', name="conv_2"))
+   dqn.add(keras.layers.Flatten(name="flatten"))
+   #dqn.add(keras.layers.Dense(25, activation='relu', name="dense_1"))
+   #dqn.add(keras.layers.Dense(9))
 
    rclpy.init(args=args)
    drone_agent = DroneAgent(drone_id=d_id, _dqn=dqn)
