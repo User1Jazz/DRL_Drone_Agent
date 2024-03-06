@@ -66,11 +66,12 @@ class DroneAgent_SAC(Node):
          self.agent.run(update_network=False, store_experience=True, verbose=0)
       else:
          self.agent.store_episode_rewards()
-         if self.episode_count >= self.max_episodes:
+         if self.episode_count > self.max_episodes:
             if self.save_path != None:
                self.agent.save_reward_chart(save_path=self.save_path+"SAC_rewards.jpg")
                self.agent.save_networks(main_path=self.save_path+"SACmain_net.keras", target_path=self.save_path+"SACtarget_net.keras")
             print("Reached episode ", self.episode_count, " out of ", self.max_episodes)
+            exit()
          print("Preparing the agent...")
          self.agent.train(no_exp=100, verbose=2)
          self.agent.decrease_exploration_probability(decrease_factor=0.05)
@@ -244,7 +245,7 @@ def main(args=None):
    dqn.add(keras.layers.Dense(9))
 
    rclpy.init(args=args)
-   drone_agent = DroneAgent_SAC(drone_id=d_id, _dqn=dqn)
+   drone_agent = DroneAgent_SAC(drone_id=d_id, _dqn=dqn, max_episodes=10, save_path="/home/blue02/Desktop/Results/")
 
    try:
       rclpy.spin(drone_agent)

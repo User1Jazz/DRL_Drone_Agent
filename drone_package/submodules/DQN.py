@@ -99,12 +99,12 @@ class DQN():
     # Function to run the DQN algorithm (do not use update_network [I just left it there for experimental purposes])
     def run(self, update_network=False, store_experience=True, verbose=0):
         self.update_state(self.agent.state, self.agent.action, self.agent.reward, self.agent.done)              # Get observation
+        self.episode_rewards.append(self.current_reward)                                                        # Store reward to the episode rewards list
         self.choose_action()
         self.agent.decode_action(verbose=verbose)                                                               # Choose action
         if update_network or store_experience:
             time.sleep(0.1) # Wait a little bit for changes
             self.update_state(self.agent.state, self.agent.action, self.agent.reward, self.agent.done)          # Get observation
-            self.episode_rewards.append(self.current_reward)                                                    # Store reward to the episode rewards list
         if update_network:
             self.update_main_net(verbose=verbose)                                                               # Update main net
         if store_experience:
@@ -174,21 +174,29 @@ class DQN():
     
     # Function to save episode rewards into the rewards list and clear the episode rewards list
     def store_episode_rewards(self):
+        if len(self.episode_rewards) == 0:
+            print("ALERT: Episode rewards list is empty! Skipping store operation.")
+            return
         self.rewards.append(self.episode_rewards)
         self.episode_rewards = []
+        print("Stored reward list of size ", len(self.rewards[-1]))
         return
     
     # Function to save rewards chart
-    def save_reward_chart(self, save_path):
+    def save_reward_chart(self, reward_path):
         # Get number of episodes
         no_episodes = [i for i in range(len(self.rewards))]
         # Initialize lists
         average_rewards = []
+        median_rewards = []
         min_rewards = []
         max_rewards = []
         # Get average reward per episode
         for reward in self.rewards:
             average_rewards.append(np.average(reward))
+        # Get median reward per episode
+        for reward in self.rewards:
+            median_rewards.append(np.median(reward))
         # Get minimum reward per episode
         for reward in self.rewards:
             min_rewards.append(np.min(reward))
@@ -200,12 +208,13 @@ class DQN():
         plt.xticks(xint)
         # Plot
         plt.plot(no_episodes, average_rewards, label='Average Reward', color='red')  # Plot average reward per episode with red line (data is tagged as 'Average Reward')
+        plt.plot(no_episodes, median_rewards, label='Median Reward', color='blue')  # Plot median reward per episode with blue line (data is tagged as 'Median Reward')
         plt.xlabel('Episode (n-1)')                                               # Set label for X axis (episodes)
         plt.ylabel('Reward')                                                      # Set label for Y axis (reward values)
         plt.title('Rewards per Episode')                                          # Set chart title
         plt.fill_between(no_episodes, min_rewards, max_rewards, alpha=0.2)           # Show range between min and max rewards
         plt.legend()                                                              # Show chart legend (data tags)
-        plt.savefig(save_path)                                                    # Save chart
+        plt.savefig(reward_path + "DoubleDQN_Rewards.jpg")                        # Save chart
         return
 
 def loss_with_entropy(alpha=0.01, temperature=1.0):

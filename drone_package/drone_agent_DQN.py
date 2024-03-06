@@ -66,7 +66,7 @@ class DroneAgent_DQN(Node):
          self.agent.run(update_network=True, store_experience=True, verbose=0)
       else:
          self.agent.store_episode_rewards()
-         if self.episode_count >= self.max_episodes:
+         if self.episode_count > self.max_episodes:
             if self.save_path != None:
                self.agent.save_reward_chart(save_path=self.save_path+"DQN_rewards.jpg")
                self.agent.save_networks(main_path=self.save_path+"DQNmain_net.keras", target_path=self.save_path+"DQNtarget_net.keras")
@@ -245,7 +245,7 @@ def main(args=None):
    dqn.add(keras.layers.Dense(9))
 
    rclpy.init(args=args)
-   drone_agent = DroneAgent_DQN(drone_id=d_id, _dqn=dqn)
+   drone_agent = DroneAgent_DQN(drone_id=d_id, _dqn=dqn, max_episodes=10, save_path="/home/blue02/Desktop/Results/")
 
    try:
       rclpy.spin(drone_agent)
