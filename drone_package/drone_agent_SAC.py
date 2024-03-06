@@ -13,10 +13,10 @@ from drone_sim_messages.msg import DroneStatus
 from geometry_msgs.msg import Vector3
 from std_msgs.msg import Float32
 
-from .submodules import DQN, DoubleDQN, SAC
+from .submodules.SAC import SAC
 
-class DroneAgent(Node):
-   def __init__(self, drone_id, _dqn = None):
+class DroneAgent_SAC(Node):
+   def __init__(self, drone_id, _dqn = None, max_episodes = 10, save_path=None):
       super().__init__('drone_agent')
       pub_topic = "/" + drone_id + "/cmd"
       self.control_publisher = self.create_publisher(DroneControl, pub_topic, 10)
@@ -53,6 +53,11 @@ class DroneAgent(Node):
       self.agent = SAC(agent=self, main_net=_dqn, target_net=_dqn)
       self.agent.set_hyperparams(no_actions=9, experience_buffer_size=500, learning_rate=0.01, metrics=['mae'], discount_factor=0.5, exploration_probability=0.5, tau=0.001)
       self.agent.compile_networks()
+
+      self.episode_count = 1
+      self.max_episodes = max_episodes
+
+      self.save_path = save_path
       return
    
    # Function to send control data (and train the agent)
@@ -60,11 +65,18 @@ class DroneAgent(Node):
       if self.active and self.status_sent:
          self.agent.run(update_network=False, store_experience=True, verbose=0)
       else:
+         self.agent.store_episode_rewards()
+         if self.episode_count >= self.max_episodes:
+            if self.save_path != None:
+               self.agent.save_reward_chart(save_path=self.save_path+"SAC_rewards.jpg")
+               self.agent.save_networks(main_path=self.save_path+"SACmain_net.keras", target_path=self.save_path+"SACtarget_net.keras")
+            print("Reached episode ", self.episode_count, " out of ", self.max_episodes)
          print("Preparing the agent...")
          self.agent.train(no_exp=100, verbose=2)
          self.agent.decrease_exploration_probability(decrease_factor=0.05)
          self.active = True
          self.status_timer_callback()
+         self.episode_count += 1
          print("Agent ready")
       return
    
@@ -232,7 +244,7 @@ def main(args=None):
    dqn.add(keras.layers.Dense(9))
 
    rclpy.init(args=args)
-   drone_agent = DroneAgent(drone_id=d_id, _dqn=dqn)
+   drone_agent = DroneAgent_SAC(drone_id=d_id, _dqn=dqn)
 
    try:
       rclpy.spin(drone_agent)

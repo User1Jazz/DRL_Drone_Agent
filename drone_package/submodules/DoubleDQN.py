@@ -3,8 +3,9 @@ import random
 import time
 from tensorflow import keras
 import keras.backend as K
+import matplotlib.pyplot as plt
 
-class DQN():
+class DoubleDQN():
     def __init__(self, agent=None, main_net=None, target_net=None):
         # Make sure the required parameters are provided
         if agent == None:
@@ -25,6 +26,8 @@ class DQN():
         self.choice_maker = "[UNKNOWN]"
         self.exp_count = 0          # Initialize experience counter
         self.target_update_count = 0# Initialize counter that counts to next update of the target q network
+        self.episode_rewards = []   # Initialize the list of rewards for current episode
+        self.rewards = []           # Initialize the list of rewards (for analysis)
         return
     
     # Function to estimate the q values using the main Q network
@@ -53,9 +56,11 @@ class DQN():
     
     # Function to update the main Q network using the target Q network
     def update_main_net(self, verbose=0):
-        self.estimate_target_q_values(self.current_state)                                                                               # Estimate Q values
-        self.target_q_values = np.array([self.current_reward + self.discount_factor * (1-self.done) * np.max(self.target_q_values)])    # Calculate Q values using Bellman equation
-        self.main_net.fit(self.previous_state, self.target_q_values, epochs=1, verbose=verbose)                                         # Update main network
+        self.estimate_target_q_values(self.current_state)                                                                                    # Estimate target Q values
+        self.estimate_q_values(self.previous_state)                                                                                          # Estimate Q values
+        self.target_q_values[np.arange(len(self.target_q_values)), np.argmax(self.q_values, axis=1)] = 0                                       # Update target Q values using the action selected by the main Q net
+        self.target_q_values = np.array([self.current_reward + self.discount_factor * (1-self.done) * np.max(self.target_q_values, axis=1)]) # Calculate Q values using Bellman equation
+        self.main_net.fit(self.previous_state, self.target_q_values, epochs=1, verbose=verbose)                                              # Update main network
         return
     
     # Function to update the target Q network
@@ -101,6 +106,7 @@ class DQN():
         if update_network or store_experience:
             time.sleep(0.1) # Wait a little bit for changes
             self.update_state(self.agent.state, self.agent.action, self.agent.reward, self.agent.done)          # Get observation
+            self.episode_rewards.append(self.current_reward)                                                    # Store reward to the episode rewards list
         if update_network:
             self.update_main_net(verbose=verbose)                                                               # Update main net
         if store_experience:
@@ -166,6 +172,42 @@ class DQN():
         if target_path != None:
             self.target_net = keras.models.load_model(target_path)
             print("Target Q network loaded")
+        return
+    
+    # Function to save episode rewards into the rewards list and clear the episode rewards list
+    def store_episode_rewards(self):
+        self.rewards.append(self.episode_rewards)
+        self.episode_rewards = []
+        return
+    
+    # Function to save rewards chart
+    def save_reward_chart(self, save_path):
+        # Get number of episodes
+        no_episodes = [i for i in range(len(self.rewards))]
+        # Initialize lists
+        average_rewards = []
+        min_rewards = []
+        max_rewards = []
+        # Get average reward per episode
+        for reward in self.rewards:
+            average_rewards.append(np.average(reward))
+        # Get minimum reward per episode
+        for reward in self.rewards:
+            min_rewards.append(np.min(reward))
+        # Get maximum reward per episode
+        for reward in self.rewards:
+            max_rewards.append(np.max(reward))
+        # Format x axis
+        xint = range(0, len(no_episodes))
+        plt.xticks(xint)
+        # Plot
+        plt.plot(no_episodes, average_rewards, label='Average Reward', color='red')  # Plot average reward per episode with red line (data is tagged as 'Average Reward')
+        plt.xlabel('Episode (n-1)')                                               # Set label for X axis (episodes)
+        plt.ylabel('Reward')                                                      # Set label for Y axis (reward values)
+        plt.title('Rewards per Episode')                                          # Set chart title
+        plt.fill_between(no_episodes, min_rewards, max_rewards, alpha=0.2)           # Show range between min and max rewards
+        plt.legend()                                                              # Show chart legend (data tags)
+        plt.savefig(save_path)                                                    # Save chart
         return
 
 def loss_with_entropy(alpha=0.01, temperature=1.0):
