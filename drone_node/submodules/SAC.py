@@ -3,6 +3,23 @@ import random
 import time
 from tensorflow import keras
 import keras.backend as K
+import math
+import tensorflow as tf
+import tensorflow_probability as tfp
+"""
+Neural Networks:
+Prediction Q net (Part of the Critic)
+Target State Val net (Part of the Critic)
+Policy Net (Actor)
+
+Replay buffer
+
+Loss Functions:
+Policy Loss Function (For policy net)
+Q Loss Function (For prediction Q net)
+Value Loss Function (For Target State Val net)
+Policy Entropy (For Policy net)
+"""
 
 class SAC():
     def __init__(self, agent=None, main_net=None, target_net=None):
@@ -176,3 +193,55 @@ def loss_with_entropy(alpha=0.01, temperature=1.0):
         total_loss = mse_loss + alpha * entropy
         return total_loss
     return loss
+
+# Function to calculate Q target
+def calculate_q_target(target_value_net, next_states, rewards, dones, gamma):
+    next_v_values = target_value_net(next_states)
+    q_target = rewards + gamma * (1 - dones) * next_v_values
+    return q_target
+
+# Function to calculate the Q-network loss
+def q_network_loss(q_net, states, actions, q_target):
+    q_values = q_net([states, actions])
+    loss = tf.keras.losses.MSE(q_target, q_values)
+    return loss
+
+# Function to calculate the Value Q-network loss
+def value_network_loss(value_net, states, q_net1, q_net2, policy_net, alpha):
+    mu, sigma = policy_net(states)
+    pi_distribution = tfp.distributions.Normal(mu, sigma)
+    actions = pi_distribution.sample()
+    log_probs = pi_distribution.log_prob(actions)
+    
+    q1_values = q_net1([states, actions])
+    q2_values = q_net2([states, actions])
+    q_values = tf.minimum(q1_values, q2_values)
+
+    v_values = value_net(states)
+    target_v_values = q_values - alpha * log_probs
+    loss = tf.keras.losses.MSE(target_v_values, v_values)
+    return loss
+
+# Function to calculate the policy network loss
+def policy_network_loss(policy_net, states, q_net1, q_net2, alpha):
+    mu, sigma = policy_net(states)
+    pi_distribution = tfp.distributions.Normal(mu, sigma)
+    actions = pi_distribution.sample()
+    log_probs = pi_distribution.log_prob(actions)
+
+    q1_values = q_net1([states, actions])
+    q2_values = q_net2([states, actions])
+    q_values = tf.minimum(q1_values, q2_values)
+
+    loss = alpha * log_probs - q_values
+    return tf.reduce_mean(loss)
+
+# Function to compute gradients and apply updates
+@tf.function
+def train_step(states, actions, next_states, rewards, dones, gamma):
+    #with tf.GradientTape() as tape:
+    #    loss = # compute the appropriate loss here, e.g., value_network_loss or q_network_loss
+
+    #gradients = tape.gradient(loss, """model variables here""")
+    #optimizer.apply_gradients(zip(gradients, """# model variables here"""))
+    return
