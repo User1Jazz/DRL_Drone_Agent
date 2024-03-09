@@ -1,12 +1,11 @@
 import numpy as np
-import random
-import time
+import tensorflow as tf
 from tensorflow import keras
 import keras.backend as K
+import random
+import time
 import matplotlib.pyplot as plt
-import math
-import tensorflow as tf
-import tensorflow_probability as tfp
+
 """
 Neural Networks:
 Prediction Q net (Part of the Critic)
@@ -23,21 +22,22 @@ Policy Entropy (For Policy net)
 """
 
 class SAC():
-    def __init__(self, agent=None, main_net=None, target_net=None):
+    def __init__(self, agent=None, P_net=None, Q_net=None, V_net=None):
         # Make sure the required parameters are provided
         if agent == None:
             print("Agent not set")
             exit()
-        if main_net == None or target_net == None:
-            print("Main net OR target net not set\nMain net: ", main_net, "\nTarget net: ", target_net)
+        if P_net == None or Q_net == None or V_net == None:
+            print("Policy net OR Q net OR V net not set\nPolicy net: ", P_net, "\nQ net: ", Q_net, "\nV net: ", V_net)
             exit()
         
         self.agent = agent          # Get the initializer
-        self.main_net = main_net    # Get the main Q network
-        self.target_net=target_net  # Get the target Q network
+        self.P_net = P_net          # Get the policy network
+        self.Q_net = Q_net          # Get the prediction Q network
+        self.target_Q_net = Q_net
+        self.V_net= V_net           # Get the target Q network
         self.experience_buffer = [] # Initialize experience buffer
-        self.current_state=None     # Initialize current state
-        self.update_state()         # Initialize other runtime variables
+        self.update_state()         # Initialize runtime variables
         self.set_hyperparams()      # Initialize hyperparameters
         self.compile_networks()     # Compile the networks
         self.choice_maker = "[UNKNOWN]"
@@ -47,14 +47,75 @@ class SAC():
         self.rewards = []           # Initialize the list of rewards (for analysis)
         return
     
-    # Function to estimate the q values using the main Q network
-    def estimate_q_values(self, state):
-        self.q_values = self.main_net.predict(state, verbose=0)
+    # Function to update runtime variables
+    def update_state(self, state=None, action=None, reward=None, done=None):
+        self.previous_state = self.current_state    # Save previous state
+        self.current_action = action                # Get new action
+        self.current_reward = reward                # Get new reward
+        self.current_state = state                  # Get new state
+        self.done = done                            # Get done flag
         return
     
-    # Function to estimate the target q values using the target Q network
+    # Function to set the hyperparameters
+    def set_hyperparams(self, no_actions = 1, experience_buffer_size = 500, target_q_update_frequency = 5, learning_rate=0.001, metrics=None, discount_factor=0.5, exploration_probability= 0.5, tau=0.001):
+        self.no_actions = no_actions
+        self.experience_buffer_size = experience_buffer_size
+        self.target_q_update_frequency = target_q_update_frequency
+        self.optimizer = keras.optimizers.SGD(learning_rate=learning_rate)
+        self.metrics = metrics
+        self.discount_factor = discount_factor
+        self.exploration_probability = exploration_probability
+        self.tau = tau
+        return
+    
+    def compile_networks(self, alpha=0.01):
+        self.alpha = alpha
+        self.P_net.compile(optimizer=self.optimizer, loss=policy_loss(alpha=self.alpha), metrics=self.metrics)
+        self.Q_net.compile(optimizer=self.optimizer, loss=q_loss(), metrics=self.metrics)
+        self.target_Q_net.compile(optimizer=self.optimizer, loss=q_loss(), metrics=self.metrics)
+        self.V_net.compile(optimizer=self.optimizer, loss=v_loss(alpha=self.alpha), metrics=self.metrics)
+        return
+    
+    # Function to estimate Q values given the state
+    def estimate_q_values(self, state):
+        self.q_values = self.Q_net.predict(state, verbose=0)
+        return
+    
+    # Function to estimate Q' values given the state
     def estimate_target_q_values(self, state):
-        self.target_q_values = self.target_net.predict(state, verbose=0)
+        self.target_q_values = self.target_Q_net.predict(state, verbose=0)
+        return
+    
+    # Function to estimate V value given the state
+    def estimate_state_value(self, state):
+        self.current_state_value = self.V_net.predict(state, verbose=0)
+        return
+    
+    # Function to estimate Policy π values given the state
+    def estimate_policy(self, state):
+        self.current_policy = self.P_net.predict(state, verbose=0)
+        return
+    
+    # Function to update Policy network
+    def update_p_net(self, verbose=0):
+        self.estimate_q_values(self.previous_state)                                         # Estimate Q values for the current state
+        self.main_net.fit(self.previous_state, self.q_values, epochs=1, verbose=verbose)    # Update Policy network
+        return
+    
+    # Function to update Q network
+    def update_q_net(self, verbose=0):
+        self.estimate_state_value(self.current_state)                                   # Estimate state value for the next state
+        target = self.current_reward + self.discount_factor * self.current_state_value  # Calculate target (r + γ * V'(s';Φ))
+        self.Q_net.fit(self.previous_state, target, epochs=1, verbose=verbose)          # Update Q network
+        return
+    
+    # Function to update State Value (V) network
+    def update_v_net(self, verbose=0):
+        self.estimate_q_values(self.previous_state)                             # Estimate Q values for the current state
+        self.estimate_policy(self.previous_state)                               # Estimate policy for the current state
+        policy_entropy = self.alpha * K.log(self.current_policy)                # Calculate policy entropy
+        target = self.q_values - policy_entropy                                 # Calculate target (Ea~π(.|s)[Q(s,a;θ)] - α * log(π(a|s;Φ )))
+        self.V_net.fit(self.previous_state, target, epochs=1, verbose=verbose)  # Update V network
         return
     
     # Function to store the experience (state, action, reward, next state, done)
@@ -71,27 +132,6 @@ class SAC():
             self.exp_count += 1
         return
     
-    # Function to update the main Q network using the target Q network
-    def update_main_net(self, verbose=0):
-        self.estimate_target_q_values(self.current_state)                                                                               # Estimate Q values
-        self.target_q_values = np.array([self.current_reward + self.discount_factor * (1-self.done) * np.max(self.target_q_values)])    # Calculate Q values using Bellman equation
-        self.main_net.fit(self.previous_state, self.target_q_values, epochs=1, verbose=verbose)                                         # Update main network
-        return
-    
-    # Function to update the target Q network
-    def update_target_net(self):
-        target_weights = self.target_net.get_weights()                                          # Get current target net weights
-        online_weights = self.main_net.get_weights()                                            # Get current main net weights
-        # Apply soft update
-        self.target_update_count += 1
-        if self.target_update_count == self.target_q_update_frequency:
-            print("Updating target q network...")
-            for i in range(len(target_weights)):
-                target_weights[i] = (1-self.tau) * target_weights[i] + self.tau * online_weights[i]
-            self.target_net.set_weights(target_weights)
-            self.target_update_count = 0
-        return
-    
     # Function to update runtime variables
     def update_state(self, state=None, action=None, reward=None, done=None):
         self.previous_state = self.current_state    # Save previous state
@@ -103,14 +143,10 @@ class SAC():
     
     # Function to choose an action
     def choose_action(self):
-        # Epsilon-greedy policy
-        if np.random.rand() < self.exploration_probability:
-            self.current_action = np.random.choice(self.no_actions)
-            self.choice_maker = "[RANDOM]"
-        else:
-            self.estimate_q_values(self.current_state)
-            self.current_action = np.argmax(self.q_values)
-            self.choice_maker = "[ESTIMATED]"
+        # Stochastic Policy Sampling strategy
+        self.estimate_policy(self.current_state)
+        self.current_action = tf.random.categorical(self.current_policy, 1)
+        self.choice_maker = "[ESTIMATED]"
         return
 
     # Function to run the DQN algorithm (do not use update_network [I just left it there for experimental purposes])
@@ -123,9 +159,15 @@ class SAC():
             time.sleep(0.1) # Wait a little bit for changes
             self.update_state(self.agent.state, self.agent.action, self.agent.reward, self.agent.done)          # Get observation
         if update_network:
-            self.update_main_net(verbose=verbose)                                                               # Update main net
+            self.update_networks(verbose=verbose)                                                               # Update main net
         if store_experience:
             self.store_experience()                                                                             # Store experience
+        return
+    
+    def update_networks(self, verbose=0):
+        self.update_q_net(verbose=verbose)
+        self.update_p_net(verbose=verbose)
+        self.update_v_net(verbose=verbose)
         return
     
     # Function to train the Q networks from the experience buffer
@@ -143,8 +185,8 @@ class SAC():
                                   action=sample_experience[i][1],
                                   reward=sample_experience[i][2],
                                   done=sample_experience[i][4])
-                self.update_main_net(verbose=verbose)
-            self.update_target_net()
+                self.update_networks(verbose=verbose)
+            #self.update_target_q_net()
         return
     
     # Function to set the hyperparameters
@@ -159,33 +201,35 @@ class SAC():
         self.tau = tau
         return
     
-    def decrease_exploration_probability(self, decrease_factor):
-        self.exploration_probability -= decrease_factor
-        return
-    
-    # Function to compile networks
-    def compile_networks(self):
-        self.main_net.compile(optimizer=self.optimizer, loss=loss_with_entropy(alpha=0.01, temperature=1.0), metrics=self.metrics)
-        self.target_net.compile(optimizer=self.optimizer, loss=loss_with_entropy(alpha=0.01, temperature=1.0), metrics=self.metrics)
-        return
-    
-    # Function to save the main and target Q networks to a file
-    def save_networks(self, main_path=None, target_path=None):
-        if main_path != None:
-            self.main_net.save(main_path)
-            print("Main Q network saved")
-        if target_path != None:
-            self.target_net.save(target_path)
+    # Function to save the neural networks to a file
+    def save_networks(self, policy_path=None, q_path = None, v_path = None, target_q_path=None):
+        if policy_path != None:
+            self.P_net.save(policy_path)
+            print("Q network saved")
+        if q_path != None:
+            self.Q_net.save(q_path)
+            print("Q network saved")
+        if v_path != None:
+            self.V_net.save(v_path)
+            print("V network saved")
+        if target_q_path != None:
+            self.target_Q_net.save(target_q_path)
             print("Target Q network saved")
         return
     
-    # Function to load the main and target Q network from a file
-    def load_networks(self, main_path=None, target_path=None):
-        if main_path != None:
-            self.main_net = keras.models.load_model(main_path)
-            print("Main Q network loaded")
-        if target_path != None:
-            self.target_net = keras.models.load_model(target_path)
+    # Function to load the neural networks from a file
+    def load_networks(self, policy_path = None, q_path=None, v_path = None, target_q_path=None):
+        if q_path != None:
+            self.P_net = keras.models.load_model(policy_path)
+            print("Q network loaded")
+        if q_path != None:
+            self.Q_net = keras.models.load_model(q_path)
+            print("Q network loaded")
+        if v_path != None:
+            self.V_net = keras.models.load_model(v_path)
+            print("Q network loaded")
+        if target_q_path != None:
+            self.target_Q_net = keras.models.load_model(target_q_path)
             print("Target Q network loaded")
         return
     
@@ -234,63 +278,27 @@ class SAC():
         plt.savefig(reward_path + "DoubleDQN_Rewards.jpg")                        # Save chart
         return
 
-def loss_with_entropy(alpha=0.01, temperature=1.0):
+# Lp(Φ) = α * log(π(a|s;Φ)) - Q(s,a;θ)
+#       alpha     y_pred       y_true
+def policy_loss(alpha=0.01):
     def loss(y_true, y_pred):
-        mse_loss = K.mean(K.square(y_true - y_pred))
-        action_probs = K.softmax(y_pred / temperature)
-        entropy = -K.sum(action_probs * K.log(action_probs + 0.000001))
-        total_loss = mse_loss + alpha * entropy
-        return total_loss
+        policy_entropy = alpha * K.log(y_pred)
+        p_loss = policy_entropy - y_true
+        return p_loss
     return loss
 
-# Function to calculate Q target
-def calculate_q_target(target_value_net, next_states, rewards, dones, gamma):
-    next_v_values = target_value_net(next_states)
-    q_target = rewards + gamma * (1 - dones) * next_v_values
-    return q_target
-
-# Function to calculate the Q-network loss
-def q_network_loss(q_net, states, actions, q_target):
-    q_values = q_net([states, actions])
-    loss = tf.keras.losses.MSE(q_target, q_values)
+# TD(θ)=1/2E(s,a,r,s')~D[(Q(s,a;θ) - (r + γ * V'(s';Φ)))^2]
+#                         y_pred     |_____y_true_____|
+def q_loss():
+    def loss(y_true, y_pred):
+        TD = 1/2 * (K.pow((y_pred - y_true), 2))
+        return TD
     return loss
 
-# Function to calculate the Value Q-network loss
-def value_network_loss(value_net, states, q_net1, q_net2, policy_net, alpha):
-    mu, sigma = policy_net(states)
-    pi_distribution = tfp.distributions.Normal(mu, sigma)
-    actions = pi_distribution.sample()
-    log_probs = pi_distribution.log_prob(actions)
-    
-    q1_values = q_net1([states, actions])
-    q2_values = q_net2([states, actions])
-    q_values = tf.minimum(q1_values, q2_values)
-
-    v_values = value_net(states)
-    target_v_values = q_values - alpha * log_probs
-    loss = tf.keras.losses.MSE(target_v_values, v_values)
+# Lv(ψ) = 1/2Es~D[(V(s,ψ) - Ea~π(.|s)[Q(s,a;θ)] - α * log(π(a|s;Φ )))^2]
+#                  y_pred   |________________y_true_________________|
+def v_loss():
+    def loss(y_true, y_pred):
+        V_loss = 1/2 * (K.pow((y_pred - y_true), 2))
+        return V_loss
     return loss
-
-# Function to calculate the policy network loss
-def policy_network_loss(policy_net, states, q_net1, q_net2, alpha):
-    mu, sigma = policy_net(states)
-    pi_distribution = tfp.distributions.Normal(mu, sigma)
-    actions = pi_distribution.sample()
-    log_probs = pi_distribution.log_prob(actions)
-
-    q1_values = q_net1([states, actions])
-    q2_values = q_net2([states, actions])
-    q_values = tf.minimum(q1_values, q2_values)
-
-    loss = alpha * log_probs - q_values
-    return tf.reduce_mean(loss)
-
-# Function to compute gradients and apply updates
-@tf.function
-def train_step(states, actions, next_states, rewards, dones, gamma):
-    #with tf.GradientTape() as tape:
-    #    loss = # compute the appropriate loss here, e.g., value_network_loss or q_network_loss
-
-    #gradients = tape.gradient(loss, """model variables here""")
-    #optimizer.apply_gradients(zip(gradients, """# model variables here"""))
-    return
