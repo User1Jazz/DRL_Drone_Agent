@@ -16,7 +16,7 @@ from std_msgs.msg import Float32
 from .submodules.SAC import SAC
 
 class DroneAgent_SAC(Node):
-   def __init__(self, drone_id, _dqn = None, max_episodes = 10, save_path=None):
+   def __init__(self, drone_id, p_net = None, q_net = None, v_net = None, max_episodes = 10, save_path=None):
       super().__init__('drone_agent')
       pub_topic = "/" + drone_id + "/cmd"
       self.control_publisher = self.create_publisher(DroneControl, pub_topic, 10)
@@ -41,6 +41,10 @@ class DroneAgent_SAC(Node):
       self.session_sub = self.create_subscription(SessionInfo, sub_topic, self.session_listener_callback, 10)
       self.session_sub # prevent unused variable warning
 
+      self.yaw_speed = 9.0
+      self.roll_speed = 9.0
+      self.throttle_speed = 5.0
+
       self.id = drone_id
       self.active = False
       self.status_sent = False
@@ -50,8 +54,8 @@ class DroneAgent_SAC(Node):
       self.reward = 0
       self.done = 0
 
-      self.agent = SAC(agent=self, main_net=_dqn, target_net=_dqn)
-      self.agent.set_hyperparams(no_actions=9, experience_buffer_size=500, learning_rate=0.01, metrics=['mae'], discount_factor=0.5, exploration_probability=0.5, tau=0.001)
+      self.agent = SAC(agent=self, P_net=p_net, Q_net=q_net, V_net=v_net)
+      self.agent.set_hyperparams(no_actions=9, experience_buffer_size=500, learning_rate=0.01, metrics=['mae'], discount_factor=0.5)
       self.agent.compile_networks()
 
       self.episode_count = 1
@@ -69,12 +73,11 @@ class DroneAgent_SAC(Node):
          if self.episode_count > self.max_episodes:
             if self.save_path != None:
                self.agent.save_reward_chart(save_path=self.save_path+"SAC_rewards.jpg")
-               self.agent.save_networks(main_path=self.save_path+"SACmain_net.keras", target_path=self.save_path+"SACtarget_net.keras")
+               self.agent.save_networks(policy_path=self.save_path+"SAC_P_net.keras", q_path=self.save_path+"SAC_Q_net.keras", v_path=self.save_path+"SAC_V_net.keras", target_q_path=self.save_path+"SAC_target_Q_net.keras")
             print("Reached episode ", self.episode_count, " out of ", self.max_episodes)
             exit()
          print("Preparing the agent...")
          self.agent.train(no_exp=100, verbose=2)
-         self.agent.decrease_exploration_probability(decrease_factor=0.05)
          self.active = True
          self.status_timer_callback()
          self.episode_count += 1
@@ -216,20 +219,26 @@ class DroneAgent_SAC(Node):
          msg.twist.angular.x = 0.0
          msg.twist.angular.y = 0.0
          msg.twist.angular.z = 1.0
+      msg.speed.x = self.roll_speed
+      msg.speed.y = self.yaw_speed
+      msg.speed.z = self.throttle_speed
       self.control_publisher.publish(msg)
       return
    
    # Function to write the summary of the agent
    def summary(self):
       print("---------------")
-      print("Q Values:")
-      print(self.agent.q_values)
+      print("Policy Values:")
+      print(self.agent.current_policy)
       print("---------------")
-      print("Main Q Network:")
-      print(self.agent.main_net.summary())
+      print("P Network:")
+      print(self.agent.P_net.summary())
       print("---------------")
-      print("Target Q Network:")
-      print(self.agent.target_net.summary())
+      print("Q Network:")
+      print(self.agent.Q_net.summary())
+      print("---------------")
+      print("V Network:")
+      print(self.agent.V_net.summary())
       print("---------------")
       return
 
@@ -237,15 +246,29 @@ class DroneAgent_SAC(Node):
 def main(args=None):
    d_id = input("Drone ID please: ")
 
-   dqn = keras.models.Sequential()
-   dqn.add(keras.layers.Conv2D(32, (6,6), activation='relu', input_shape=(84,84,1)))
-   dqn.add(keras.layers.Conv2D(64, (4,4), activation='relu'))
-   dqn.add(keras.layers.Flatten())
-   dqn.add(keras.layers.Dense(25, activation='relu'))
-   dqn.add(keras.layers.Dense(9))
+   p_net = keras.models.Sequential()
+   p_net.add(keras.layers.Conv2D(32, (6,6), activation='relu', input_shape=(84,84,1)))
+   p_net.add(keras.layers.Conv2D(64, (4,4), activation='relu'))
+   p_net.add(keras.layers.Flatten())
+   p_net.add(keras.layers.Dense(25, activation='relu'))
+   p_net.add(keras.layers.Dense(9, activation='softmax'))
+
+   q_net = keras.models.Sequential()
+   q_net.add(keras.layers.Conv2D(32, (6,6), activation='relu', input_shape=(84,84,1)))
+   q_net.add(keras.layers.Conv2D(64, (4,4), activation='relu'))
+   q_net.add(keras.layers.Flatten())
+   q_net.add(keras.layers.Dense(25, activation='relu'))
+   q_net.add(keras.layers.Dense(9))
+
+   v_net = keras.models.Sequential()
+   v_net.add(keras.layers.Conv2D(32, (6,6), activation='relu', input_shape=(84,84,1)))
+   v_net.add(keras.layers.Conv2D(64, (4,4), activation='relu'))
+   v_net.add(keras.layers.Flatten())
+   v_net.add(keras.layers.Dense(25, activation='relu'))
+   v_net.add(keras.layers.Dense(1))
 
    rclpy.init(args=args)
-   drone_agent = DroneAgent_SAC(drone_id=d_id, _dqn=dqn, max_episodes=10, save_path="/home/blue02/Desktop/Results/")
+   drone_agent = DroneAgent_SAC(drone_id=d_id, p_net=p_net, q_net=q_net, v_net=v_net, max_episodes=10, save_path="/home/blue02/Desktop/Results/")
 
    try:
       rclpy.spin(drone_agent)

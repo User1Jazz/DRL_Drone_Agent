@@ -37,6 +37,7 @@ class SAC():
         self.target_Q_net = Q_net
         self.V_net= V_net           # Get the target Q network
         self.experience_buffer = [] # Initialize experience buffer
+        self.current_state=None     # Initialize current state
         self.update_state()         # Initialize runtime variables
         self.set_hyperparams()      # Initialize hyperparameters
         self.compile_networks()     # Compile the networks
@@ -57,15 +58,13 @@ class SAC():
         return
     
     # Function to set the hyperparameters
-    def set_hyperparams(self, no_actions = 1, experience_buffer_size = 500, target_q_update_frequency = 5, learning_rate=0.001, metrics=None, discount_factor=0.5, exploration_probability= 0.5, tau=0.001):
+    def set_hyperparams(self, no_actions = 1, experience_buffer_size = 500, target_q_update_frequency = 5, learning_rate=0.001, metrics=None, discount_factor=0.5):
         self.no_actions = no_actions
         self.experience_buffer_size = experience_buffer_size
         self.target_q_update_frequency = target_q_update_frequency
-        self.optimizer = keras.optimizers.SGD(learning_rate=learning_rate)
+        self.optimizer = keras.optimizers.legacy.SGD(learning_rate=learning_rate)
         self.metrics = metrics
         self.discount_factor = discount_factor
-        self.exploration_probability = exploration_probability
-        self.tau = tau
         return
     
     def compile_networks(self, alpha=0.01):
@@ -73,7 +72,7 @@ class SAC():
         self.P_net.compile(optimizer=self.optimizer, loss=policy_loss(alpha=self.alpha), metrics=self.metrics)
         self.Q_net.compile(optimizer=self.optimizer, loss=q_loss(), metrics=self.metrics)
         self.target_Q_net.compile(optimizer=self.optimizer, loss=q_loss(), metrics=self.metrics)
-        self.V_net.compile(optimizer=self.optimizer, loss=v_loss(alpha=self.alpha), metrics=self.metrics)
+        self.V_net.compile(optimizer=self.optimizer, loss=v_loss(), metrics=self.metrics)
         return
     
     # Function to estimate Q values given the state
@@ -98,8 +97,8 @@ class SAC():
     
     # Function to update Policy network
     def update_p_net(self, verbose=0):
-        self.estimate_q_values(self.previous_state)                                         # Estimate Q values for the current state
-        self.main_net.fit(self.previous_state, self.q_values, epochs=1, verbose=verbose)    # Update Policy network
+        self.estimate_q_values(self.previous_state)                                     # Estimate Q values for the current state
+        self.P_net.fit(self.previous_state, self.q_values, epochs=1, verbose=verbose)   # Update Policy network
         return
     
     # Function to update Q network
@@ -165,9 +164,9 @@ class SAC():
         return
     
     def update_networks(self, verbose=0):
-        self.update_q_net(verbose=verbose)
-        self.update_p_net(verbose=verbose)
-        self.update_v_net(verbose=verbose)
+        print("Updating Q net: ", self.update_q_net(verbose=verbose))
+        print("Updating P net: ", self.update_p_net(verbose=verbose))
+        print("Updating V net: ",self.update_v_net(verbose=verbose))
         return
     
     # Function to train the Q networks from the experience buffer
@@ -187,18 +186,6 @@ class SAC():
                                   done=sample_experience[i][4])
                 self.update_networks(verbose=verbose)
             #self.update_target_q_net()
-        return
-    
-    # Function to set the hyperparameters
-    def set_hyperparams(self, no_actions = 1, experience_buffer_size = 500, target_q_update_frequency = 5, learning_rate=0.001, metrics=None, discount_factor=0.5, exploration_probability= 0.5, tau=0.001):
-        self.no_actions = no_actions
-        self.experience_buffer_size = experience_buffer_size
-        self.target_q_update_frequency = target_q_update_frequency
-        self.optimizer = keras.optimizers.SGD(learning_rate=learning_rate)
-        self.metrics = metrics
-        self.discount_factor = discount_factor
-        self.exploration_probability = exploration_probability
-        self.tau = tau
         return
     
     # Function to save the neural networks to a file
@@ -244,7 +231,7 @@ class SAC():
         return
     
     # Function to save rewards chart
-    def save_reward_chart(self, reward_path):
+    def save_reward_chart(self, save_path):
         # Get number of episodes
         no_episodes = [i for i in range(len(self.rewards))]
         # Initialize lists
@@ -275,7 +262,7 @@ class SAC():
         plt.title('Rewards per Episode')                                          # Set chart title
         plt.fill_between(no_episodes, min_rewards, max_rewards, alpha=0.2)           # Show range between min and max rewards
         plt.legend()                                                              # Show chart legend (data tags)
-        plt.savefig(reward_path + "DoubleDQN_Rewards.jpg")                        # Save chart
+        plt.savefig(save_path + "DoubleDQN_Rewards.jpg")                        # Save chart
         return
 
 # Lp(Φ) = α * log(π(a|s;Φ)) - Q(s,a;θ)

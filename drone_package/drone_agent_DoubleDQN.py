@@ -41,6 +41,10 @@ class DroneAgent_DoubleDQN(Node):
       self.session_sub = self.create_subscription(SessionInfo, sub_topic, self.session_listener_callback, 10)
       self.session_sub # prevent unused variable warning
 
+      self.yaw_speed = 9.0
+      self.roll_speed = 9.0
+      self.throttle_speed = 5.0
+
       self.id = drone_id
       self.active = False
       self.status_sent = False
@@ -216,6 +220,9 @@ class DroneAgent_DoubleDQN(Node):
          msg.twist.angular.x = 0.0
          msg.twist.angular.y = 0.0
          msg.twist.angular.z = 1.0
+      msg.speed.x = self.roll_speed
+      msg.speed.y = self.yaw_speed
+      msg.speed.z = self.throttle_speed
       self.control_publisher.publish(msg)
       return
    
