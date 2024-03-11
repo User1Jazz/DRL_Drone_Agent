@@ -254,7 +254,7 @@ class SAC():
 #       alpha     y_pred       y_true
 def policy_loss(alpha=0.01):
     def loss(y_true, y_pred):
-        policy_entropy = alpha * K.log(y_pred)
+        policy_entropy = alpha * K.log(y_pred + 0.000001)
         p_loss = policy_entropy - y_true
         return p_loss
     return loss
