@@ -6,21 +6,6 @@ import random
 import time
 import matplotlib.pyplot as plt
 
-"""
-Neural Networks:
-Prediction Q net (Part of the Critic)
-Target State Val net (Part of the Critic)
-Policy Net (Actor)
-
-Replay buffer
-
-Loss Functions:
-Policy Loss Function (For policy net)
-Q Loss Function (For prediction Q net)
-Value Loss Function (For Target State Val net)
-Policy Entropy (For Policy net)
-"""
-
 class SAC():
     def __init__(self, agent=None, P_net=None, Q_net=None, V_net=None):
         # Make sure the required parameters are provided
@@ -97,24 +82,24 @@ class SAC():
     
     # Function to update Policy network
     def update_p_net(self, verbose=0):
-        self.estimate_q_values(self.previous_state)                                     # Estimate Q values for the current state
-        self.P_net.fit(self.previous_state, self.q_values, epochs=1, verbose=verbose)   # Update Policy network
+        self.estimate_q_values(self.previous_state)                                                                 # Estimate Q values for the current state
+        print("Updating P net: ", self.P_net.fit(self.previous_state, self.q_values, epochs=1, verbose=verbose))    # Update Policy network
         return
     
     # Function to update Q network
     def update_q_net(self, verbose=0):
-        self.estimate_state_value(self.current_state)                                   # Estimate state value for the next state
-        target = self.current_reward + self.discount_factor * self.current_state_value  # Calculate target (r + γ * V'(s';Φ))
-        self.Q_net.fit(self.previous_state, target, epochs=1, verbose=verbose)          # Update Q network
+        self.estimate_state_value(self.current_state)                                                       # Estimate state value for the next state
+        target = self.current_reward + self.discount_factor * self.current_state_value                      # Calculate target (r + γ * V'(s';Φ))
+        print("Updating Q net: ", self.Q_net.fit(self.previous_state, target, epochs=1, verbose=verbose))   # Update Q network
         return
     
     # Function to update State Value (V) network
     def update_v_net(self, verbose=0):
-        self.estimate_q_values(self.previous_state)                             # Estimate Q values for the current state
-        self.estimate_policy(self.previous_state)                               # Estimate policy for the current state
-        policy_entropy = self.alpha * K.log(self.current_policy)                # Calculate policy entropy
-        target = self.q_values - policy_entropy                                 # Calculate target (Ea~π(.|s)[Q(s,a;θ)] - α * log(π(a|s;Φ )))
-        self.V_net.fit(self.previous_state, target, epochs=1, verbose=verbose)  # Update V network
+        self.estimate_q_values(self.previous_state)                                                         # Estimate Q values for the current state
+        self.estimate_policy(self.previous_state)                                                           # Estimate policy for the current state
+        policy_entropy = self.alpha * K.log(self.current_policy)                                            # Calculate policy entropy
+        target = self.q_values - policy_entropy                                                             # Calculate target (Ea~π(.|s)[Q(s,a;θ)] - α * log(π(a|s;Φ )))
+        print("Updating V net: ", self.V_net.fit(self.previous_state, target, epochs=1, verbose=verbose))   # Update V network
         return
     
     # Function to store the experience (state, action, reward, next state, done)
@@ -156,17 +141,17 @@ class SAC():
         self.agent.decode_action(verbose=verbose)                                                               # Choose action
         if update_network or store_experience:
             time.sleep(0.1) # Wait a little bit for changes
-            self.update_state(self.agent.state, self.agent.action, self.agent.reward, self.agent.done)          # Get observation
+            self.update_state(self.agent.state, self.agent.action, self.agent.reward, self.agent.done)          # Get next observation
         if update_network:
-            self.update_networks(verbose=verbose)                                                               # Update main net
+            self.update_networks(verbose=verbose)                                                               # Update networks
         if store_experience:
             self.store_experience()                                                                             # Store experience
         return
     
     def update_networks(self, verbose=0):
-        print("Updating Q net: ", self.update_q_net(verbose=verbose))
-        print("Updating P net: ", self.update_p_net(verbose=verbose))
-        print("Updating V net: ",self.update_v_net(verbose=verbose))
+        self.update_q_net(verbose=verbose)
+        self.update_p_net(verbose=verbose)
+        self.update_v_net(verbose=verbose)
         return
     
     # Function to train the Q networks from the experience buffer
@@ -192,7 +177,7 @@ class SAC():
     def save_networks(self, policy_path=None, q_path = None, v_path = None, target_q_path=None):
         if policy_path != None:
             self.P_net.save(policy_path)
-            print("Q network saved")
+            print("P network saved")
         if q_path != None:
             self.Q_net.save(q_path)
             print("Q network saved")
@@ -208,13 +193,13 @@ class SAC():
     def load_networks(self, policy_path = None, q_path=None, v_path = None, target_q_path=None):
         if q_path != None:
             self.P_net = keras.models.load_model(policy_path)
-            print("Q network loaded")
+            print("P network loaded")
         if q_path != None:
             self.Q_net = keras.models.load_model(q_path)
             print("Q network loaded")
         if v_path != None:
             self.V_net = keras.models.load_model(v_path)
-            print("Q network loaded")
+            print("V network loaded")
         if target_q_path != None:
             self.target_Q_net = keras.models.load_model(target_q_path)
             print("Target Q network loaded")
@@ -255,14 +240,14 @@ class SAC():
         xint = range(0, len(no_episodes))
         plt.xticks(xint)
         # Plot
-        plt.plot(no_episodes, average_rewards, label='Average Reward', color='red')  # Plot average reward per episode with red line (data is tagged as 'Average Reward')
+        plt.plot(no_episodes, average_rewards, label='Average Reward', color='red') # Plot average reward per episode with red line (data is tagged as 'Average Reward')
         plt.plot(no_episodes, median_rewards, label='Median Reward', color='blue')  # Plot median reward per episode with blue line (data is tagged as 'Median Reward')
-        plt.xlabel('Episode (n-1)')                                               # Set label for X axis (episodes)
-        plt.ylabel('Reward')                                                      # Set label for Y axis (reward values)
-        plt.title('Rewards per Episode')                                          # Set chart title
-        plt.fill_between(no_episodes, min_rewards, max_rewards, alpha=0.2)           # Show range between min and max rewards
-        plt.legend()                                                              # Show chart legend (data tags)
-        plt.savefig(save_path + "DoubleDQN_Rewards.jpg")                        # Save chart
+        plt.xlabel('Episode (n-1)')                                                 # Set label for X axis (episodes)
+        plt.ylabel('Reward')                                                        # Set label for Y axis (reward values)
+        plt.title('Rewards per Episode')                                            # Set chart title
+        plt.fill_between(no_episodes, min_rewards, max_rewards, alpha=0.2)          # Show range between min and max rewards
+        plt.legend()                                                                # Show chart legend (data tags)
+        plt.savefig(save_path + "DoubleDQN_Rewards.jpg")                            # Save chart
         return
 
 # Lp(Φ) = α * log(π(a|s;Φ)) - Q(s,a;θ)
