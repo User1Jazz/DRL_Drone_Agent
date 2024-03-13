@@ -47,7 +47,7 @@ class SAC():
         self.no_actions = no_actions
         self.experience_buffer_size = experience_buffer_size
         self.target_q_update_frequency = target_q_update_frequency
-        self.optimizer = keras.optimizers.legacy.SGD(learning_rate=learning_rate)
+        self.optimizer = keras.optimizers.legacy.SGD(learning_rate=learning_rate, clipnorm=1.0)
         self.metrics = metrics
         self.discount_factor = discount_factor
         return
@@ -77,31 +77,64 @@ class SAC():
     
     # Function to estimate Policy π values given the state
     def estimate_policy(self, state):
-        self.current_policy = self.P_net.predict(state, verbose=0)
+        policy = self.estimate_action_probabilities(state)
+        self.current_policy = tf.nn.softmax(policy)
         return
+    
+    def estimate_action_probabilities(self, state):
+        return self.P_net.predict(state, verbose=0)
     
     # Function to update Policy network
     def update_p_net(self, verbose=0):
-        self.estimate_q_values(self.previous_state)                                                                 # Estimate Q values for the current state
-        print("Updating P net: ", self.P_net.fit(self.previous_state, self.q_values, epochs=1, verbose=verbose))    # Update Policy network
+        with tf.GradientTape() as tape:
+            logits = self.P_net(self.previous_state)                                    # Get policy net output (for getting the actions)
+            actions, action_probs = self.sample_actions(logits=logits)                  # Sample actions
+            log_probs = tf.math.log(tf.gather(action_probs, actions, batch_dims=1))     # Compute natural logarithm of action probability
+            q_values = self.Q_net(self.previous_state)                                  # Estimate Q values for the current state
+            policy_loss = tf.reduce_mean(log_probs - q_values)                          # Calculate policy loss
+        gradients = tape.gradient(policy_loss, self.P_net.trainable_variables)          # Calculate gradients
+        self.optimizer.apply_gradients(zip(gradients, self.P_net.trainable_variables))  # Update network parameters
+        if verbose > 0:
+            print("Loss: ", policy_loss)
         return
+    
+    # Helper function to get sampled actions and action probabilities
+    def sample_actions(self, logits):
+        action_probs = tf.nn.softmax(logits)
+        sampled_actions = tf.random.categorical(logits, num_samples=1)
+        return tf.squeeze(sampled_actions, axis=1), action_probs
     
     # Function to update Q network
     def update_q_net(self, verbose=0):
-        self.estimate_state_value(self.current_state)                                                       # Estimate state value for the next state
-        target = self.current_reward + self.discount_factor * self.current_state_value                      # Calculate target (r + γ * V'(s';Φ))
-        print("Updating Q net: ", self.Q_net.fit(self.previous_state, target, epochs=1, verbose=verbose))   # Update Q network
+        with tf.GradientTape() as tape:
+            q_values = self.Q_net(self.previous_state)                                      # Estimate q values
+            next_state_value = self.V_net(self.current_state)                               # Estimate state value for next state
+            next_state_value = tf.stop_gradient(next_state_value)                           # Detach next state value from the computation graph
+            target_q_values = self.current_reward + self.discount_factor * next_state_value # Compute target Q values
+            q_loss = tf.reduce_mean(0.5 * tf.square(q_values - target_q_values))            # Calculate Q loss function
+        gradients = tape.gradient(q_loss, self.Q_net.trainable_variables)                   # Calculate gradients
+        self.optimizer.apply_gradients(zip(gradients, self.Q_net.trainable_variables))      # Update network parameters
+        if verbose > 0:
+            print("Loss: ", q_loss)
         return
     
     # Function to update State Value (V) network
     def update_v_net(self, verbose=0):
-        self.estimate_q_values(self.previous_state)                                                         # Estimate Q values for the current state
-        self.estimate_policy(self.previous_state)                                                           # Estimate policy for the current state
-        policy_entropy = self.alpha * K.log(self.current_policy)                                            # Calculate policy entropy
-        target = self.q_values - policy_entropy                                                             # Calculate target (Ea~π(.|s)[Q(s,a;θ)] - α * log(π(a|s;Φ )))
-        print("Updating V net: ", self.V_net.fit(self.previous_state, target, epochs=1, verbose=verbose))   # Update V network
+        with tf.GradientTape() as tape:
+            state_value = self.V_net(self.previous_state)                               # Estimate state value
+            logits = self.P_net(self.previous_state)                                    # Get policy net output
+            actions, action_probs = self.sample_actions(logits)                         # Sample actions
+            q_values = self.Q_net(self.previous_state)                                  # Estimate Q values
+            log_probs = tf.math.log(tf.gather(action_probs, actions, batch_dims=1))     # Calculate natural logarithm of action probability
+            target_values = q_values - self.alpha * log_probs                           # Calculate target Q values
+            target_values = tf.stop_gradient(target_values)                             # Stop gradient for target
+            loss = tf.reduce_mean(0.5 * tf.square(state_value - target_values))         # Calculate state value loss
+        gradients = tape.gradient(loss, self.V_net.trainable_variables)                 # Calculate gradients
+        self.optimizer.apply_gradients(zip(gradients, self.V_net.trainable_variables))  # Update network parameters
+        if verbose > 0:
+            print("Loss: ", loss)
         return
-    
+     
     # Function to store the experience (state, action, reward, next state, done)
     def store_experience(self):
         # Make sure exp_count (index pointer) does not go out of bounds
@@ -127,9 +160,9 @@ class SAC():
     
     # Function to choose an action
     def choose_action(self):
-        # Stochastic Policy Sampling strategy
-        self.estimate_policy(self.current_state)
-        self.current_action = tf.random.categorical(self.current_policy, 1)
+        self.current_policy = self.P_net(self.current_state)
+        self.current_action = tf.random.categorical(self.current_policy, num_samples=1)
+        self.current_action = tf.squeeze(self.current_action).numpy()
         self.choice_maker = "[ESTIMATED]"
         return
 
@@ -149,9 +182,15 @@ class SAC():
         return
     
     def update_networks(self, verbose=0):
+        print("Updating Q net...")
         self.update_q_net(verbose=verbose)
+        print("-----------------")
+        print("Updating P net...")
         self.update_p_net(verbose=verbose)
+        print("-----------------")
+        print("Updating V net...")
         self.update_v_net(verbose=verbose)
+        print("-----------------")
         return
     
     # Function to train the Q networks from the experience buffer
@@ -247,7 +286,7 @@ class SAC():
         plt.title('Rewards per Episode')                                            # Set chart title
         plt.fill_between(no_episodes, min_rewards, max_rewards, alpha=0.2)          # Show range between min and max rewards
         plt.legend()                                                                # Show chart legend (data tags)
-        plt.savefig(save_path + "DoubleDQN_Rewards.jpg")                            # Save chart
+        plt.savefig(save_path)                                                      # Save chart
         return
 
 # Lp(Φ) = α * log(π(a|s;Φ)) - Q(s,a;θ)

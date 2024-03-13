@@ -183,7 +183,7 @@ class DQN():
         return
     
     # Function to save rewards chart
-    def save_reward_chart(self, reward_path):
+    def save_reward_chart(self, save_path):
         # Get number of episodes
         no_episodes = [i for i in range(len(self.rewards))]
         # Initialize lists
@@ -214,7 +214,7 @@ class DQN():
         plt.title('Rewards per Episode')                                          # Set chart title
         plt.fill_between(no_episodes, min_rewards, max_rewards, alpha=0.2)           # Show range between min and max rewards
         plt.legend()                                                              # Show chart legend (data tags)
-        plt.savefig(reward_path + "DoubleDQN_Rewards.jpg")                        # Save chart
+        plt.savefig(save_path)                                                    # Save chart
         return
 
 def loss_with_entropy(alpha=0.01, temperature=1.0):
