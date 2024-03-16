@@ -1,6 +1,7 @@
 import numpy as np
 import random
 import time
+import tensorflow as tf
 from tensorflow import keras
 import keras.backend as K
 import matplotlib.pyplot as plt
@@ -56,11 +57,24 @@ class DoubleDQN():
     
     # Function to update the main Q network using the target Q network
     def update_main_net(self, verbose=0):
-        self.estimate_target_q_values(self.current_state)                                                                                    # Estimate target Q values
-        self.estimate_q_values(self.previous_state)                                                                                          # Estimate Q values
-        self.target_q_values[np.arange(len(self.target_q_values)), np.argmax(self.q_values, axis=1)] = 0                                       # Update target Q values using the action selected by the main Q net
-        self.target_q_values = np.array([self.current_reward + self.discount_factor * (1-self.done) * np.max(self.target_q_values, axis=1)]) # Calculate Q values using Bellman equation
-        self.main_net.fit(self.previous_state, self.target_q_values, epochs=1, verbose=verbose)                                              # Update main network
+        #self.estimate_target_q_values(self.current_state)                                                                                    # Estimate target Q values
+        #self.estimate_q_values(self.previous_state)                                                                                          # Estimate Q values
+        #self.target_q_values[np.arange(len(self.target_q_values)), np.argmax(self.q_values, axis=1)] = 0                                       # Update target Q values using the action selected by the main Q net
+        #self.target_q_values = np.array([self.current_reward + self.discount_factor * (1-self.done) * np.max(self.target_q_values, axis=1)]) # Calculate Q values using Bellman equation
+        #self.main_net.fit(self.previous_state, self.target_q_values, epochs=1, verbose=verbose)                                              # Update main network
+        with tf.GradientTape() as tape:
+            action_masks = tf.one_hot(self.current_action, depth=self.no_actions)                       # Compute action masks
+            q_values = tf.reduce_sum(self.main_net(self.previous_state) * action_masks, axis=1)         # Get Q values for current state
+            next_actions = tf.argmax(self.main_net(self.current_state), axis =1)                        # Get actions for next state
+            next_actions = tf.one_hot(next_actions, self.no_actions)                                    # Get one-hot vector out of actions
+            next_q_values = tf.reduce_sum(self.target_net(self.current_state) * next_actions, axis=1)   # Calculate Q values for the next state
+            target_q_values = self.current_reward + (1-self.done) * next_q_values                       # Calculate target Q values
+            target_q_values = tf.stop_gradient(target_q_values)                                         # Detach target Q values from the graph
+            loss = tf.reduce_mean(tf.square(q_values - target_q_values))                                # Calculate loss
+        gradients = tape.gradient(loss, self.main_net.trainable_variables)                              # Calculate gradients
+        self.optimizer.apply_gradients(zip(gradients, self.main_net.trainable_variables))               # Update network parameters
+        if verbose > 0:
+            print("Loss: ", loss)
         return
     
     # Function to update the target Q network

@@ -1,6 +1,7 @@
 import numpy as np
 import random
 import time
+import tensorflow as tf
 from tensorflow import keras
 import keras.backend as K
 import matplotlib.pyplot as plt
@@ -56,9 +57,20 @@ class DQN():
     
     # Function to update the main Q network using the target Q network
     def update_main_net(self, verbose=0):
-        self.estimate_target_q_values(self.current_state)                                                                               # Estimate Q values
-        self.target_q_values = np.array([self.current_reward + self.discount_factor * (1-self.done) * np.max(self.target_q_values)])    # Calculate Q values using Bellman equation
-        self.main_net.fit(self.previous_state, self.target_q_values, epochs=1, verbose=verbose)                                         # Update main network
+        #self.estimate_target_q_values(self.current_state)                                                                               # Estimate Q values
+        #elf.target_q_values = np.array([self.current_reward + self.discount_factor * (1-self.done) * np.max(self.target_q_values)])    # Calculate Q values using Bellman equation
+        #self.main_net.fit(self.previous_state, self.target_q_values, epochs=1, verbose=verbose)                                         # Update main network
+        with tf.GradientTape() as tape:
+            action_masks = tf.one_hot(self.current_action, self.no_actions)
+            q_values = tf.reduce_sum(self.main_net(self.previous_state) * action_masks, axis=1)             # Estimate Q values
+            next_q_values = tf.reduce_max(self.target_net(self.current_state), axis=1)                      # Estimate next Q values
+            next_q_values = tf.stop_gradient(next_q_values)                                                 # Detach next_q_values from the computation graph
+            target_q_values = self.current_reward + self.discount_factor * (1-self.done) * next_q_values    # Calculate target Q values
+            loss = tf.reduce_mean(tf.square(q_values - target_q_values))                                    # Calculate loss
+        gradients = tape.gradient(loss, self.main_net.trainable_variables)                                  # Calculate gradients
+        self.optimizer.apply_gradients(zip(gradients, self.main_net.trainable_variables))                   # Update network parameters
+        if verbose > 0:
+            print("Loss: ", loss)
         return
     
     # Function to update the target Q network
