@@ -55,7 +55,7 @@ class DroneAgent_SAC(Node):
       self.done = 0
 
       self.agent = SAC(agent=self, P_net=p_net, Q_net=q_net, V_net=v_net)
-      self.agent.set_hyperparams(no_actions=9, experience_buffer_size=500, learning_rate=0.01, metrics=['mae'], discount_factor=0.5)
+      self.agent.set_hyperparams(no_actions=9, experience_buffer_size=2000, learning_rate=0.01, metrics=['mae'], discount_factor=0.5)
       self.agent.compile_networks()
 
       self.episode_count = 1
@@ -77,7 +77,7 @@ class DroneAgent_SAC(Node):
             print("Reached episode ", self.episode_count, " out of ", self.max_episodes)
             exit()
          print("Preparing the agent...")
-         self.agent.train(no_exp=100, verbose=2)
+         self.agent.train(no_exp=1000, verbose=2)
          self.active = True
          self.status_timer_callback()
          self.episode_count += 1
@@ -129,18 +129,8 @@ class DroneAgent_SAC(Node):
    # Function to decode the action number into action
    def decode_action(self, verbose=0):
       msg = DroneControl()
-      #IDLE
-      if self.agent.current_action == 0:
-         if verbose > -1:
-            print("Selected action: IDLE, ", self.agent.choice_maker)
-         msg.twist.linear.x = 0.0
-         msg.twist.linear.y = 0.0
-         msg.twist.linear.z = 0.0
-         msg.twist.angular.x = 0.0
-         msg.twist.angular.y = 0.0
-         msg.twist.angular.z = 0.0
       #FORWARD
-      if self.agent.current_action == 1:
+      if self.agent.current_action == 0:
          if verbose > -1:
             print("Selected action: FORWARD, ", self.agent.choice_maker)
          msg.twist.linear.x = 1.0
@@ -150,7 +140,7 @@ class DroneAgent_SAC(Node):
          msg.twist.angular.y = 0.0
          msg.twist.angular.z = 0.0
       #BACKWARD
-      if self.agent.current_action == 2:
+      if self.agent.current_action == 1:
          if verbose > -1:
             print("Selected action: BACKWARD, ", self.agent.choice_maker)
          msg.twist.linear.x = -1.0
@@ -160,7 +150,7 @@ class DroneAgent_SAC(Node):
          msg.twist.angular.y = 0.0
          msg.twist.angular.z = 0.0
       #LEFT
-      if self.agent.current_action == 3:
+      if self.agent.current_action == 2:
          if verbose > -1:
             print("Selected action: LEFT, ", self.agent.choice_maker)
          msg.twist.linear.x = 0.0
@@ -170,7 +160,7 @@ class DroneAgent_SAC(Node):
          msg.twist.angular.y = 0.0
          msg.twist.angular.z = 0.0
       #RIGHT
-      if self.agent.current_action == 4:
+      if self.agent.current_action == 3:
          if verbose > -1:
             print("Selected action: RIGHT, ", self.agent.choice_maker)
          msg.twist.linear.x = 0.0
@@ -180,7 +170,7 @@ class DroneAgent_SAC(Node):
          msg.twist.angular.y = 0.0
          msg.twist.angular.z = 0.0
       #UP
-      if self.agent.current_action == 5:
+      if self.agent.current_action == 4:
          if verbose > -1:
             print("Selected action: UP, ", self.agent.choice_maker)
          msg.twist.linear.x = 0.0
@@ -190,7 +180,7 @@ class DroneAgent_SAC(Node):
          msg.twist.angular.y = 0.0
          msg.twist.angular.z = 0.0
       #DOWN
-      if self.agent.current_action == 6:
+      if self.agent.current_action == 5:
          if verbose > -1:
             print("Selected action: DOWN, ", self.agent.choice_maker)
          msg.twist.linear.x = 0.0
@@ -199,26 +189,6 @@ class DroneAgent_SAC(Node):
          msg.twist.angular.x = 0.0
          msg.twist.angular.y = 0.0
          msg.twist.angular.z = 0.0
-      #YAW LEFT
-      if self.agent.current_action == 7:
-         if verbose > -1:
-            print("Selected action: YAW LEFT, ", self.agent.choice_maker)
-         msg.twist.linear.x = 0.0
-         msg.twist.linear.y = 0.0
-         msg.twist.linear.z = 0.0
-         msg.twist.angular.x = 0.0
-         msg.twist.angular.y = 0.0
-         msg.twist.angular.z = -1.0
-      #YAW RIGHT
-      if self.agent.current_action == 8:
-         if verbose > -1:
-            print("Selected action: YAW RIGHT, ", self.agent.choice_maker)
-         msg.twist.linear.x = 0.0
-         msg.twist.linear.y = 0.0
-         msg.twist.linear.z = 0.0
-         msg.twist.angular.x = 0.0
-         msg.twist.angular.y = 0.0
-         msg.twist.angular.z = 1.0
       msg.speed.x = self.roll_speed
       msg.speed.y = self.yaw_speed
       msg.speed.z = self.throttle_speed
@@ -251,14 +221,14 @@ def main(args=None):
    p_net.add(keras.layers.Conv2D(64, (4,4), activation='relu', kernel_initializer='he_uniform'))
    p_net.add(keras.layers.Flatten())
    p_net.add(keras.layers.Dense(25, activation='relu', kernel_initializer='he_uniform'))
-   p_net.add(keras.layers.Dense(9))
+   p_net.add(keras.layers.Dense(6))
 
    q_net = keras.models.Sequential()
    q_net.add(keras.layers.Conv2D(32, (6,6), activation='relu', input_shape=(84,84,1)))
    q_net.add(keras.layers.Conv2D(64, (4,4), activation='relu', kernel_initializer='he_uniform'))
    q_net.add(keras.layers.Flatten())
    q_net.add(keras.layers.Dense(25, activation='relu', kernel_initializer='he_uniform'))
-   q_net.add(keras.layers.Dense(9))
+   q_net.add(keras.layers.Dense(6))
 
    v_net = keras.models.Sequential()
    v_net.add(keras.layers.Conv2D(32, (6,6), activation='relu', input_shape=(84,84,1)))
@@ -268,7 +238,7 @@ def main(args=None):
    v_net.add(keras.layers.Dense(1))
 
    rclpy.init(args=args)
-   drone_agent = DroneAgent_SAC(drone_id=d_id, p_net=p_net, q_net=q_net, v_net=v_net, max_episodes=10, save_path="/home/blue02/Desktop/Results/")
+   drone_agent = DroneAgent_SAC(drone_id=d_id, p_net=p_net, q_net=q_net, v_net=v_net, max_episodes=40, save_path="/home/blue02/Desktop/Results/")
 
    try:
       rclpy.spin(drone_agent)

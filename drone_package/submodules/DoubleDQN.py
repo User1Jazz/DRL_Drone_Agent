@@ -166,6 +166,7 @@ class DoubleDQN():
     def compile_networks(self):
         self.main_net.compile(optimizer=self.optimizer, loss=loss_with_entropy(alpha=0.01, temperature=1.0), metrics=self.metrics)
         self.target_net.compile(optimizer=self.optimizer, loss=loss_with_entropy(alpha=0.01, temperature=1.0), metrics=self.metrics)
+        self.target_net.set_weights(self.main_net.get_weights())
         return
     
     # Function to save the main and target Q networks to a file
