@@ -20,12 +20,12 @@ class DroneAgent_DoubleDQN(Node):
       super().__init__('drone_agent')
       pub_topic = "/" + drone_id + "/cmd"
       self.control_publisher = self.create_publisher(DroneControl, pub_topic, 10)
-      timer_period = 0.5 # seconds
+      timer_period = 0.25 # seconds
       self.timer = self.create_timer(timer_period, self.control_timer_callback)
       self.i = 0
       pub_topic = "/" + drone_id + "/status"
       self.status_publisher = self.create_publisher(DroneStatus, pub_topic, 10)
-      timer_period = 0.5 # seconds
+      timer_period = 0.25 # seconds
       self.timer = self.create_timer(timer_period, self.status_timer_callback)
       self.i = 0
       sub_topic = "/" + drone_id + "/data"
@@ -66,9 +66,9 @@ class DroneAgent_DoubleDQN(Node):
    
    # Function to send control data (and train the agent)
    def control_timer_callback(self):
-      if self.active and self.status_sent:
+      if self.active and self.status_sent and not self.done:
          self.agent.run(update_network=False, store_experience=True, verbose=0)
-      else:
+      elif not self.active:
          self.agent.store_episode_rewards()
          if self.episode_count > self.max_episodes:
             if self.save_path != None:
