@@ -222,7 +222,7 @@ def main(args=None):
    dqn.add(keras.layers.Dense(6))
 
    rclpy.init(args=args)
-   drone_agent = DroneAgent_DoubleDQN(drone_id=d_id, _dqn=dqn, num_actions=6, max_episodes=40, save_path="/home/blue02/Desktop/Results/")
+   drone_agent = DroneAgent_DoubleDQN(drone_id=d_id, _dqn=dqn, num_actions=6, max_episodes=1, save_path="/home/blue02/Desktop/Results/")
 
    try:
       rclpy.spin(drone_agent)

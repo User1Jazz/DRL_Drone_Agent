@@ -16,7 +16,7 @@ from std_msgs.msg import Float32
 from .submodules.SAC import SAC
 
 class DroneAgent_SAC(Node):
-   def __init__(self, drone_id, p_net = None, q_net = None, v_net = None, max_episodes = 10, save_path=None):
+   def __init__(self, drone_id, p_net = None, q_net = None, v_net = None, num_actions=1, max_episodes = 10, save_path=None):
       super().__init__('drone_agent')
       pub_topic = "/" + drone_id + "/cmd"
       self.control_publisher = self.create_publisher(DroneControl, pub_topic, 10)
@@ -55,7 +55,7 @@ class DroneAgent_SAC(Node):
       self.done = 0
 
       self.agent = SAC(agent=self, P_net=p_net, Q_net=q_net, V_net=v_net)
-      self.agent.set_hyperparams(no_actions=9, experience_buffer_size=2000, learning_rate=0.01, metrics=['mae'], discount_factor=0.5)
+      self.agent.set_hyperparams(no_actions=num_actions, experience_buffer_size=2000, learning_rate=0.01, metrics=['mae'], discount_factor=0.5)
       self.agent.compile_networks()
 
       self.episode_count = 1
@@ -238,7 +238,7 @@ def main(args=None):
    v_net.add(keras.layers.Dense(1))
 
    rclpy.init(args=args)
-   drone_agent = DroneAgent_SAC(drone_id=d_id, p_net=p_net, q_net=q_net, v_net=v_net, max_episodes=40, save_path="/home/blue02/Desktop/Results/")
+   drone_agent = DroneAgent_SAC(drone_id=d_id, p_net=p_net, q_net=q_net, v_net=v_net, num_actions=6, max_episodes=1, save_path="/home/blue02/Desktop/Results/")
 
    try:
       rclpy.spin(drone_agent)

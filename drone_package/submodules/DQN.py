@@ -220,14 +220,15 @@ class DQN():
         xint = range(0, len(no_episodes))
         plt.xticks(xint)
         # Plot
-        plt.plot(no_episodes, average_rewards, label='Average Reward', color='red')  # Plot average reward per episode with red line (data is tagged as 'Average Reward')
+        plt.plot(no_episodes, average_rewards, label='Average Reward', color='red') # Plot average reward per episode with red line (data is tagged as 'Average Reward')
         plt.plot(no_episodes, median_rewards, label='Median Reward', color='blue')  # Plot median reward per episode with blue line (data is tagged as 'Median Reward')
-        plt.xlabel('Episode (n-1)')                                               # Set label for X axis (episodes)
-        plt.ylabel('Reward')                                                      # Set label for Y axis (reward values)
-        plt.title('Rewards per Episode')                                          # Set chart title
-        plt.fill_between(no_episodes, min_rewards, max_rewards, alpha=0.2)           # Show range between min and max rewards
-        plt.legend()                                                              # Show chart legend (data tags)
-        plt.savefig(save_path)                                                    # Save chart
+        plt.xlabel('Episode')                                                       # Set label for X axis (episodes)
+        plt.ylabel('Reward')                                                        # Set label for Y axis (reward values)
+        plt.title('Rewards per Episode')                                            # Set chart title
+        plt.fill_between(no_episodes, min_rewards, max_rewards, alpha=0.2)          # Show range between min and max rewards
+        plt.xticks(range(0, self.agent.max_episodes,100))
+        plt.legend()                                                                # Show chart legend (data tags)
+        plt.savefig(save_path)                                                      # Save chart
         return
 
 def loss_with_entropy(alpha=0.01, temperature=1.0):

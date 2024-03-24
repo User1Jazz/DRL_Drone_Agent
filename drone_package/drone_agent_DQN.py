@@ -16,7 +16,7 @@ from std_msgs.msg import Float32
 from .submodules.DQN import DQN
 
 class DroneAgent_DQN(Node):
-   def __init__(self, drone_id, _dqn = None, max_episodes = 10, save_path=None):
+   def __init__(self, drone_id, _dqn = None, num_actions=1, max_episodes = 10, save_path=None):
       super().__init__('drone_agent')
       pub_topic = "/" + drone_id + "/cmd"
       self.control_publisher = self.create_publisher(DroneControl, pub_topic, 10)
@@ -55,7 +55,7 @@ class DroneAgent_DQN(Node):
       self.done = 0
 
       self.agent = DQN(agent=self, main_net=_dqn, target_net=_dqn)
-      self.agent.set_hyperparams(no_actions=6, experience_buffer_size=2000, learning_rate=0.01, metrics=['mae'], discount_factor=0.5, exploration_probability=0.5, tau=0.001)
+      self.agent.set_hyperparams(no_actions=num_actions, experience_buffer_size=2000, learning_rate=0.01, metrics=['mae'], discount_factor=0.5, exploration_probability=0.5, tau=0.001)
       self.agent.compile_networks()
 
       self.episode_count = 1
@@ -222,7 +222,7 @@ def main(args=None):
    dqn.add(keras.layers.Dense(6))
 
    rclpy.init(args=args)
-   drone_agent = DroneAgent_DQN(drone_id=d_id, _dqn=dqn, max_episodes=40, save_path="/home/blue02/Desktop/Results/")
+   drone_agent = DroneAgent_DQN(drone_id=d_id, _dqn=dqn, num_actions=6, max_episodes=1, save_path="/home/blue02/Desktop/Results/")
 
    try:
       rclpy.spin(drone_agent)
