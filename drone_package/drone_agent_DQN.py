@@ -2,6 +2,10 @@ import numpy as np
 from tensorflow import keras
 import math
 import cv2
+import time
+from .submodules.Environment import Environment
+from .submodules.AgentMemory import RewardStorage
+from .submodules.Control import Control
 
 # ROS2 dependencies
 import rclpy
@@ -13,11 +17,11 @@ from drone_sim_messages.msg import DroneStatus
 from geometry_msgs.msg import Vector3
 from std_msgs.msg import Float32
 
-from .submodules.DQN import DQN
+from .submodules.DQN import Agent
 
 class DroneAgent_DQN(Node):
-   def __init__(self, drone_id, _dqn = None, num_actions=1, max_episodes = 10, save_path=None):
-      super().__init__('drone_agent')
+   def __init__(self, drone_id, agent, control, environment, n_episodes = 10, save_path=None):
+      super().__init__('drone_agent_DQN')
       pub_topic = "/" + drone_id + "/cmd"
       self.control_publisher = self.create_publisher(DroneControl, pub_topic, 10)
       timer_period = 0.25 # seconds
@@ -25,9 +29,9 @@ class DroneAgent_DQN(Node):
       self.i = 0
       pub_topic = "/" + drone_id + "/status"
       self.status_publisher = self.create_publisher(DroneStatus, pub_topic, 10)
-      timer_period = 0.25 # seconds
-      self.timer = self.create_timer(timer_period, self.status_timer_callback)
-      self.i = 0
+      #timer_period = 0.25 # seconds
+      #self.timer = self.create_timer(timer_period, self.status_timer_callback)
+      #self.i = 0
       sub_topic = "/" + drone_id + "/data"
       self.data_sub = self.create_subscription(DroneSensors, sub_topic, self.sensor_listener_callback, 10)
       self.data_sub # prevent unused variable warning
@@ -41,59 +45,55 @@ class DroneAgent_DQN(Node):
       self.session_sub = self.create_subscription(SessionInfo, sub_topic, self.session_listener_callback, 10)
       self.session_sub # prevent unused variable warning
 
-      self.yaw_speed = 12.0
-      self.roll_speed = 10.0
-      self.throttle_speed = 2.0
+      self.control_params = control
 
       self.id = drone_id
-      self.active = False
-      self.status_sent = False
 
-      self.state = np.zeros((1,84,84,1))
-      self.action = 0
-      self.reward = 0
-      self.done = 0
-
-      self.agent = DQN(agent=self, main_net=_dqn, target_net=_dqn)
-      self.agent.set_hyperparams(no_actions=num_actions, experience_buffer_size=2000, learning_rate=0.01, metrics=['mae'], discount_factor=0.5, exploration_probability=0.5, tau=0.001)
-      self.agent.compile_networks()
-
+      self.n_episodes = n_episodes
       self.episode_count = 1
-      self.max_episodes = max_episodes
+
+      self.agent = agent
+      self.environment = environment
+      self.reward_storage = RewardStorage()
+
+      self.state  = self.environment.reset()
+      self.done = self.environment.done
+      self.trained = False
 
       self.save_path = save_path
       return
    
-   # Function to send control data (and train the agent)
+   # Function to send control data
    def control_timer_callback(self):
-      if self.active and self.status_sent and not self.done:
-         self.agent.run(update_network=True, store_experience=True, verbose=0)
-      elif not self.active:
-         self.agent.store_episode_rewards()
-         if self.episode_count > self.max_episodes:
-            if self.save_path != None:
-               self.agent.save_reward_chart(save_path=self.save_path+"DQN_rewards.jpg")
-               self.agent.save_networks(main_path=self.save_path+"DQNmain_net.keras", target_path=self.save_path+"DQNtarget_net.keras")
-            print("Reached episode ", self.episode_count, " out of ", self.max_episodes)
-            exit()
+      if not self.environment.done:
+         self.trained = False
+         action = self.agent.choose_action(self.state)                  # Choose action
+         self.decode_action(action)                                     # Execute action
+         time.sleep(0.1)                                                # Wait for changes
+         state_, reward, done = self.environment.step()                 # Get observation
+         self.agent.remember(self.state, action, reward, state_, done)  # Store experience
+         self.state = state_                                            # Store old state
+         #self.agent.learn(verbose=2)
+         self.reward_storage.add_reward(reward)                         # Save reward
+      elif not self.trained:
+         self.reward_storage.store_episode_rewards()                    # Save episode rewards
+         self.check_for_end()
          print("Preparing the agent...")
-         self.agent.train(no_exp=1000, verbose=2)
-         self.agent.decrease_exploration_probability(decrease_factor=0.05)
-         self.active = True
-         self.status_timer_callback()
-         self.episode_count += 1
-         print("Agent ready")
+         self.agent.learn(verbose=2)                                    # Train the agent
+         self.status_timer_callback()                                   # Send status to the simulator
+         self.episode_count += 1                                        # Increase episode count
+         self.trained = True
+         print("Agent ready!")
       return
    
    # Function to send drone agent status
    def status_timer_callback(self):
-      if self.active and not self.status_sent:
-         print("Sending status...")
-         msg = DroneStatus()
-         msg.id = self.id
-         msg.active = True
-         self.status_publisher.publish(msg)
-         self.status_sent = True
+      print("Sending status...")
+      msg = DroneStatus()
+      msg.id = self.id
+      msg.active = True
+      self.status_publisher.publish(msg)
+      print("Status sent!")
       return
    
    # Function to get the drone state
@@ -107,13 +107,14 @@ class DroneAgent_DQN(Node):
       resized_image = cv2.resize(decoded_image, input_size) # Resize the image
       normalized_image = resized_image / 255.0              # Normalize pixel values to range [0,1]
       
-      self.state = np.expand_dims(normalized_image, axis=1)
-      self.state = np.transpose(self.state, (1,0,2))
+      state = np.expand_dims(normalized_image, axis=1)
+      state = np.transpose(state, (2,0,1))
+      self.environment.state = state
       return
    
    # Function to get reward value
    def reward_listener_callback(self, msg):
-      self.reward = msg.data
+      self.environment.reward = msg.data
       return
    
    # Function to get drone status
@@ -124,14 +125,24 @@ class DroneAgent_DQN(Node):
       return
    
    def session_listener_callback(self, msg):
-      self.done = msg.session_ended
+      self.active = msg.session_ended
+      self.environment.done = msg.session_ended
+      return
+   
+   def check_for_end(self):
+      if self.episode_count > self.n_episodes:
+         print("Reached episode ", self.episode_count, " out of ", self.n_episodes)
+         if self.save_path != None:
+            self.agent.save_model()
+            self.reward_storage.save_reward_chart(self.save_path+"DQN_rewards.jpg")
+         exit()
       return
    
    # Function to decode the action number into action
-   def decode_action(self, verbose=0):
+   def decode_action(self, action, verbose=0):
       msg = DroneControl()
       #FORWARD
-      if self.agent.current_action == 0:
+      if action == 0:
          if verbose > -1:
             print("Selected action: FORWARD, ", self.agent.choice_maker)
          msg.twist.linear.x = 1.0
@@ -141,7 +152,7 @@ class DroneAgent_DQN(Node):
          msg.twist.angular.y = 0.0
          msg.twist.angular.z = 0.0
       #BACKWARD
-      if self.agent.current_action == 1:
+      if action == 1:
          if verbose > -1:
             print("Selected action: BACKWARD, ", self.agent.choice_maker)
          msg.twist.linear.x = -1.0
@@ -151,7 +162,7 @@ class DroneAgent_DQN(Node):
          msg.twist.angular.y = 0.0
          msg.twist.angular.z = 0.0
       #LEFT
-      if self.agent.current_action == 2:
+      if action == 2:
          if verbose > -1:
             print("Selected action: LEFT, ", self.agent.choice_maker)
          msg.twist.linear.x = 0.0
@@ -161,7 +172,7 @@ class DroneAgent_DQN(Node):
          msg.twist.angular.y = 0.0
          msg.twist.angular.z = 0.0
       #RIGHT
-      if self.agent.current_action == 3:
+      if action == 3:
          if verbose > -1:
             print("Selected action: RIGHT, ", self.agent.choice_maker)
          msg.twist.linear.x = 0.0
@@ -170,66 +181,26 @@ class DroneAgent_DQN(Node):
          msg.twist.angular.x = 0.0
          msg.twist.angular.y = 0.0
          msg.twist.angular.z = 0.0
-      #UP
-      if self.agent.current_action == 4:
-         if verbose > -1:
-            print("Selected action: UP, ", self.agent.choice_maker)
-         msg.twist.linear.x = 0.0
-         msg.twist.linear.y = 0.0
-         msg.twist.linear.z = 1.0
-         msg.twist.angular.x = 0.0
-         msg.twist.angular.y = 0.0
-         msg.twist.angular.z = 0.0
-      #DOWN
-      if self.agent.current_action == 5:
-         if verbose > -1:
-            print("Selected action: DOWN, ", self.agent.choice_maker)
-         msg.twist.linear.x = 0.0
-         msg.twist.linear.y = 0.0
-         msg.twist.linear.z = -1.0
-         msg.twist.angular.x = 0.0
-         msg.twist.angular.y = 0.0
-         msg.twist.angular.z = 0.0
-      msg.speed.x = self.roll_speed
-      msg.speed.y = self.yaw_speed
-      msg.speed.z = self.throttle_speed
+      msg.speed.x = self.control_params.roll
+      msg.speed.y = self.control_params.yaw
+      msg.speed.z = self.control_params.throttle
       self.control_publisher.publish(msg)
-      return
-   
-   # Function to write the summary of the agent
-   def summary(self):
-      print("---------------")
-      print("Q Values:")
-      print(self.agent.q_values)
-      print("---------------")
-      print("Main Q Network:")
-      print(self.agent.main_net.summary())
-      print("---------------")
-      print("Target Q Network:")
-      print(self.agent.target_net.summary())
-      print("---------------")
       return
 
 # Main function
 def main(args=None):
    d_id = input("Drone ID please: ")
 
-   dqn = keras.models.Sequential()
-   dqn.add(keras.layers.Conv2D(32, (6,6), activation='relu', input_shape=(84,84,1)))
-   dqn.add(keras.layers.Conv2D(64, (4,4), activation='relu'))
-   dqn.add(keras.layers.Flatten())
-   dqn.add(keras.layers.Dense(25, activation='relu'))
-   dqn.add(keras.layers.Dense(6))
+   agent = Agent(gamma=0.99, epsilon=1.0, alpha=0.0005, input_dims=(84,84,1), n_actions=4, mem_size=1000, batch_size=10, epsilon_end=0.01, fname='/home/blue02/Desktop/Results/DQN/dqn_model.keras')
+   control = Control(yaw=10.0, roll=10.0, throttle=10.0)
+   environment = Environment(state_shape=(84,84,1))
 
    rclpy.init(args=args)
-   drone_agent = DroneAgent_DQN(drone_id=d_id, _dqn=dqn, num_actions=6, max_episodes=1, save_path="/home/blue02/Desktop/Results/")
+   drone_agent = DroneAgent_DQN(drone_id=d_id, agent=agent, control=control, environment=environment, n_episodes=50, save_path="/home/blue02/Desktop/Results/")
 
    try:
       rclpy.spin(drone_agent)
    except KeyboardInterrupt:
-      print("---------------")
-      print("Results:")
-      drone_agent.summary()
       # Destroy the node explicitly
       # (optional - otherwise it will be done automatically
       # when the garbage collector destroys the node object)

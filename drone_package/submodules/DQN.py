@@ -1,241 +1,77 @@
+from keras.layers import Conv2D, Flatten, Dense, Activation
+from keras.models import Sequential, load_model
+from keras.optimizers import Adam
 import numpy as np
-import random
-import time
-import tensorflow as tf
-from tensorflow import keras
-import keras.backend as K
-import matplotlib.pyplot as plt
+from .AgentMemory import ReplayBuffer
 
-class DQN():
-    def __init__(self, agent=None, main_net=None, target_net=None):
-        # Make sure the required parameters are provided
-        if agent == None:
-            print("Agent not set")
-            exit()
-        if main_net == None or target_net == None:
-            print("Main net OR target net not set\nMain net: ", main_net, "\nTarget net: ", target_net)
-            exit()
-        
-        self.agent = agent          # Get the initializer
-        self.main_net = main_net    # Get the main Q network
-        self.target_net=target_net  # Get the target Q network
-        self.experience_buffer = [] # Initialize experience buffer
-        self.current_state=None     # Initialize current state
-        self.update_state()         # Initialize other runtime variables
-        self.set_hyperparams()      # Initialize hyperparameters
-        self.compile_networks()     # Compile the networks
-        self.choice_maker = "[UNKNOWN]"
-        self.exp_count = 0          # Initialize experience counter
-        self.target_update_count = 0# Initialize counter that counts to next update of the target q network
-        self.episode_rewards = []   # Initialize the list of rewards for current episode
-        self.rewards = []           # Initialize the list of rewards (for analysis)
+class Agent(object):
+    def __init__(self, alpha, gamma, n_actions, epsilon, batch_size, input_dims, epsilon_dec=0.996, epsilon_end = 0.01, mem_size=1000, fname='dqn_model.keras'):
+        self.choice_maker = ["UNKNOWN"]
+        self.action_space = [i for i in range(n_actions)]
+        self.n_actions = n_actions
+        self.gamma = gamma
+        self.epsilon = epsilon
+        self.epsilon_dec = epsilon_dec
+        self.epsilon_min = epsilon_end
+        self.batch_size = batch_size
+        self.model_file = fname
+        self.memory = ReplayBuffer(mem_size, input_dims, n_actions, discrete=True)
+        self.q_eval = self.build_dqn(alpha, n_actions, input_dims, 256, 256)
+        for layer in self.q_eval.layers:
+            print("Layer ", layer.name, " input shape: ", layer.input_shape)
         return
     
-    # Function to estimate the q values using the main Q network
-    def estimate_q_values(self, state):
-        self.q_values = self.main_net.predict(state, verbose=0)
+    def build_dqn(self, lr, n_actions, input_dims, fc1_dims, fc2_dims):
+        model = Sequential([
+            Conv2D(32, (6,6), input_shape=input_dims),
+            Activation('relu'),
+            Conv2D(32, (3,3), input_shape=input_dims),
+            Activation('relu'),
+            Flatten(),
+            Dense(fc1_dims),
+            Activation('relu'),
+            Dense(fc2_dims),
+            Activation('relu'),
+            Dense(n_actions)
+        ])
+        model.compile(optimizer=Adam(learning_rate=lr), loss='mse')
+        return model
+    
+    def remember(self, state, action, reward, new_state, done):
+        self.memory.store_transition(state, action, reward, new_state, done)
         return
     
-    # Function to estimate the target q values using the target Q network
-    def estimate_target_q_values(self, state):
-        self.target_q_values = self.target_net.predict(state, verbose=0)
-        return
-    
-    # Function to store the experience (state, action, reward, next state, done)
-    def store_experience(self):
-        # Make sure exp_count (index pointer) does not go out of bounds
-        if self.exp_count >= self.experience_buffer_size:
-            self.exp_count = 0
-        # Get experience record
-        experience = [self.previous_state, self.current_action, self.current_reward, self.current_state, self.done]
-        if len(self.experience_buffer) < self.experience_buffer_size:
-            self.experience_buffer.append(experience)           # Append the experience if maximum not met
-        else:
-            self.experience_buffer[self.exp_count] = experience # Otherwise, replace previous record with new one
-            self.exp_count += 1
-        return
-    
-    # Function to update the main Q network using the target Q network
-    def update_main_net(self, verbose=0):
-        #self.estimate_target_q_values(self.current_state)                                                                               # Estimate Q values
-        #elf.target_q_values = np.array([self.current_reward + self.discount_factor * (1-self.done) * np.max(self.target_q_values)])    # Calculate Q values using Bellman equation
-        #self.main_net.fit(self.previous_state, self.target_q_values, epochs=1, verbose=verbose)                                         # Update main network
-        with tf.GradientTape() as tape:
-            action_masks = tf.one_hot(self.current_action, self.no_actions)
-            q_values = tf.reduce_sum(self.main_net(self.previous_state) * action_masks, axis=1)             # Estimate Q values
-            next_q_values = tf.reduce_max(self.target_net(self.current_state), axis=1)                      # Estimate next Q values
-            next_q_values = tf.stop_gradient(next_q_values)                                                 # Detach next_q_values from the computation graph
-            target_q_values = self.current_reward + self.discount_factor * (1-self.done) * next_q_values    # Calculate target Q values
-            loss = tf.reduce_mean(tf.square(q_values - target_q_values))                                    # Calculate loss
-        gradients = tape.gradient(loss, self.main_net.trainable_variables)                                  # Calculate gradients
-        self.optimizer.apply_gradients(zip(gradients, self.main_net.trainable_variables))                   # Update network parameters
-        if verbose > 0:
-            print("Loss: ", loss)
-        return
-    
-    # Function to update the target Q network
-    def update_target_net(self):
-        target_weights = self.target_net.get_weights()                                          # Get current target net weights
-        online_weights = self.main_net.get_weights()                                            # Get current main net weights
-        # Apply soft update
-        self.target_update_count += 1
-        if self.target_update_count == self.target_q_update_frequency:
-            print("Updating target q network...")
-            for i in range(len(target_weights)):
-                target_weights[i] = (1-self.tau) * target_weights[i] + self.tau * online_weights[i]
-            self.target_net.set_weights(target_weights)
-            self.target_update_count = 0
-        return
-    
-    # Function to update runtime variables
-    def update_state(self, state=None, action=None, reward=None, done=None):
-        self.previous_state = self.current_state    # Save previous state
-        self.current_action = action                # Get new action
-        self.current_reward = reward                # Get new reward
-        self.current_state = state                  # Get new state
-        self.done = done                            # Get done flag
-        return
-    
-    # Function to choose an action
-    def choose_action(self):
-        # Epsilon-greedy policy
-        if np.random.rand() < self.exploration_probability:
-            self.current_action = np.random.choice(self.no_actions)
+    def choose_action(self, state):
+        state = state[np.newaxis, :]
+        rand = np.random.random()
+        if rand < self.epsilon:
+            action = np.random.choice(self.action_space)
             self.choice_maker = "[RANDOM]"
         else:
-            self.estimate_q_values(self.current_state)
-            self.current_action = np.argmax(self.q_values)
+            actions = self.q_eval.predict(state, verbose=0)
+            action = np.argmax(actions)
             self.choice_maker = "[ESTIMATED]"
-        return
-
-    # Function to run the DQN algorithm (do not use update_network [I just left it there for experimental purposes])
-    def run(self, update_network=False, store_experience=True, verbose=0):
-        self.update_state(self.agent.state, self.agent.action, self.agent.reward, self.agent.done)              # Get observation
-        self.episode_rewards.append(self.current_reward)                                                        # Store reward to the episode rewards list
-        self.choose_action()
-        self.agent.decode_action(verbose=verbose)                                                               # Choose action
-        if update_network or store_experience:
-            time.sleep(0.1) # Wait a little bit for changes
-            self.update_state(self.agent.state, self.agent.action, self.agent.reward, self.agent.done)          # Get observation
-        if update_network:
-            self.update_main_net(verbose=verbose)                                                               # Update main net
-        if store_experience:
-            self.store_experience()                                                                             # Store experience
-        return
+        return action
     
-    # Function to train the Q networks from the experience buffer
-    def train(self, no_exp, verbose=0):
-        if len(self.experience_buffer) > 0:
-            # Sample experiences
-            if no_exp >= len(self.experience_buffer):
-                sample_experience = random.sample(self.experience_buffer, len(self.experience_buffer))
-            else:
-                sample_experience = random.sample(self.experience_buffer, no_exp)
-            # Replay experiences
-            for i in range(len(sample_experience)):
-                self.current_state = sample_experience[i][0]
-                self.update_state(state=sample_experience[i][3],
-                                  action=sample_experience[i][1],
-                                  reward=sample_experience[i][2],
-                                  done=sample_experience[i][4])
-                self.update_main_net(verbose=verbose)
-            self.update_target_net()
-        return
-    
-    # Function to set the hyperparameters
-    def set_hyperparams(self, no_actions = 1, experience_buffer_size = 500, target_q_update_frequency = 5, learning_rate=0.001, metrics=None, discount_factor=0.5, exploration_probability= 0.5, tau=0.001):
-        self.no_actions = no_actions
-        self.experience_buffer_size = experience_buffer_size
-        self.target_q_update_frequency = target_q_update_frequency
-        self.optimizer = keras.optimizers.SGD(learning_rate=learning_rate)
-        self.metrics = metrics
-        self.discount_factor = discount_factor
-        self.exploration_probability = exploration_probability
-        self.tau = tau
-        return
-    
-    def decrease_exploration_probability(self, decrease_factor):
-        self.exploration_probability -= decrease_factor
-        return
-    
-    # Function to compile networks
-    def compile_networks(self):
-        self.main_net.compile(optimizer=self.optimizer, loss=loss_with_entropy(alpha=0.01, temperature=1.0), metrics=self.metrics)
-        self.target_net.compile(optimizer=self.optimizer, loss=loss_with_entropy(alpha=0.01, temperature=1.0), metrics=self.metrics)
-        self.target_net.set_weights(self.main_net.get_weights())
-        return
-    
-    # Function to save the main and target Q networks to a file
-    def save_networks(self, main_path=None, target_path=None):
-        if main_path != None:
-            self.main_net.save(main_path)
-            print("Main Q network saved")
-        if target_path != None:
-            self.target_net.save(target_path)
-            print("Target Q network saved")
-        return
-    
-    # Function to load the main and target Q network from a file
-    def load_networks(self, main_path=None, target_path=None):
-        if main_path != None:
-            self.main_net = keras.models.load_model(main_path)
-            print("Main Q network loaded")
-        if target_path != None:
-            self.target_net = keras.models.load_model(target_path)
-            print("Target Q network loaded")
-        return
-    
-    # Function to save episode rewards into the rewards list and clear the episode rewards list
-    def store_episode_rewards(self):
-        if len(self.episode_rewards) == 0:
-            print("ALERT: Episode rewards list is empty! Skipping store operation.")
+    def learn(self, verbose=0):
+        if self.memory.mem_cntr < self.batch_size:
             return
-        self.rewards.append(self.episode_rewards)
-        self.episode_rewards = []
-        print("Stored reward list of size ", len(self.rewards[-1]))
+        state, action, reward, new_state, done = self.memory.sample_buffer(self.batch_size)
+        action_values = np.array(self.action_space, dtype=np.int8)
+        action_indices = np.dot(action, action_values)
+        q_eval = self.q_eval.predict(state, verbose=0)
+        q_next = self.q_eval.predict(new_state, verbose=0)
+        q_target = q_eval.copy()
+        batch_index = np.arange(self.batch_size, dtype=np.int32)
+        q_target[batch_index, action_indices] = reward + self.gamma * np.max(q_next, axis=1) * done
+        _ = self.q_eval.fit(state, q_target, verbose=verbose)
+        self.epsilon = self.epsilon * self.epsilon_dec if self.epsilon > self.epsilon_min else self.epsilon_min
         return
     
-    # Function to save rewards chart
-    def save_reward_chart(self, save_path):
-        # Get number of episodes
-        no_episodes = [i for i in range(len(self.rewards))]
-        # Initialize lists
-        average_rewards = []
-        median_rewards = []
-        min_rewards = []
-        max_rewards = []
-        # Get average reward per episode
-        for reward in self.rewards:
-            average_rewards.append(np.average(reward))
-        # Get median reward per episode
-        for reward in self.rewards:
-            median_rewards.append(np.median(reward))
-        # Get minimum reward per episode
-        for reward in self.rewards:
-            min_rewards.append(np.min(reward))
-        # Get maximum reward per episode
-        for reward in self.rewards:
-            max_rewards.append(np.max(reward))
-        # Format x axis
-        xint = range(0, len(no_episodes))
-        plt.xticks(xint)
-        # Plot
-        plt.plot(no_episodes, average_rewards, label='Average Reward', color='red') # Plot average reward per episode with red line (data is tagged as 'Average Reward')
-        plt.plot(no_episodes, median_rewards, label='Median Reward', color='blue')  # Plot median reward per episode with blue line (data is tagged as 'Median Reward')
-        plt.xlabel('Episode')                                                       # Set label for X axis (episodes)
-        plt.ylabel('Reward')                                                        # Set label for Y axis (reward values)
-        plt.title('Rewards per Episode')                                            # Set chart title
-        plt.fill_between(no_episodes, min_rewards, max_rewards, alpha=0.2)          # Show range between min and max rewards
-        plt.xticks(range(0, self.agent.max_episodes,100))
-        plt.legend()                                                                # Show chart legend (data tags)
-        plt.savefig(save_path)                                                      # Save chart
+    def save_model(self):
+        self.q_eval.save(self.model_file)
         return
-
-def loss_with_entropy(alpha=0.01, temperature=1.0):
-    def loss(y_true, y_pred):
-        mse_loss = K.mean(K.square(y_true - y_pred))
-        action_probs = K.softmax(y_pred / temperature)
-        entropy = -K.sum(action_probs * K.log(action_probs + 0.000001))
-        total_loss = mse_loss + alpha * entropy
-        return total_loss
-    return loss
+    
+    def load_model(self):
+        self.q_eval = load_model(self.model_file)
+        return

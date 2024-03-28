@@ -1,316 +1,213 @@
-import numpy as np
 import tensorflow as tf
-from tensorflow import keras
-import keras.backend as K
-import random
-import time
-import matplotlib.pyplot as plt
+import tensorflow_probability as tfp
+import keras
+from keras.layers import Conv2D, Dense, Flatten
+from keras.optimizers import Adam
+import os
+from AgentMemory import ReplayBuffer
 
-class SAC():
-    def __init__(self, agent=None, P_net=None, Q_net=None, V_net=None):
-        # Make sure the required parameters are provided
-        if agent == None:
-            print("Agent not set")
-            exit()
-        if P_net == None or Q_net == None or V_net == None:
-            print("Policy net OR Q net OR V net not set\nPolicy net: ", P_net, "\nQ net: ", Q_net, "\nV net: ", V_net)
-            exit()
-        
-        self.agent = agent          # Get the initializer
-        self.P_net = P_net          # Get the policy network
-        self.Q_net = Q_net          # Get the prediction Q network
-        self.target_Q_net = Q_net
-        self.V_net= V_net           # Get the target Q network
-        self.experience_buffer = [] # Initialize experience buffer
-        self.current_state=None     # Initialize current state
-        self.update_state()         # Initialize runtime variables
-        self.set_hyperparams()      # Initialize hyperparameters
-        self.compile_networks()     # Compile the networks
+class CriticNetwork(keras.Model):
+    def __init__(self, n_actions, input_dims, fc1_dims=256, fc2_dims=256, name='critic', chkpt_dir='tmp/sac'):
+        super(CriticNetwork, self).__init__()
+        self.fc1_dims = fc1_dims
+        self. fc2_dims = fc2_dims
+        self.n_actions = n_actions
+        self.model_name = name
+        self.checkpoint_dir = chkpt_dir
+        self.checkpoint_file = os.path.join(self.checkpoint_dir, name+'_sac')
+        self.conv_1 = Conv2D(32, (6,6), activation='relu', input_shape=input_dims)
+        self.conv_2 = Conv2D(64, (3,3), activation='relu')
+        self.flatten = Flatten()
+        self.fc1 = Dense(self.fc1_dims, activation='relu')
+        self.fc2 = Dense(self.fc2_dims, activation='relu')
+        self.q = Dense(1, activation=None)
+        return
+    
+    def call(self, state, action):
+        action_value = self.conv_1(tf.concat([state,action], axis=1))
+        action_value = self.conv_2(action_value)
+        action_value = self.flatten(action_value)
+        action_value = self.fc1(action_value)
+        action_value = self.fc2(action_value)
+        q = self.q(action_value)
+        return q
+    
+class ValueNetwork(keras.Model):
+    def __init__(self, n_actions, input_dims, fc1_dims=256, fc2_dims=256, name='value', chkpt_dir='tmp/sac'):
+        super(ValueNetwork, self).__init__()
+        self.fc1_dims = fc1_dims
+        self.fc2_dims = fc2_dims
+        self.n_actions = n_actions
+        self.model_name = name
+        self.checkpoint_dir = chkpt_dir
+        self.checkpoint_file = os.path.join(self.checkpoint_dir, name+'_sac')
+        self.conv_1 = Conv2D(32, (6,6), activation='relu', input_shape=input_dims)
+        self.conv_2 = Conv2D(64, (3,3), activation='relu')
+        self.flatten = Flatten()
+        self.fc1 = Dense(self.fc1_dims, activation='relu')
+        self.fc2 = Dense(self.fc2_dims, activation='relu')
+        self.v = Dense(1, activation=None)
+        return
+    
+    def call(self, state):
+        state_value = self.conv_1(state)
+        state_value = self.conv_2(state_value)
+        state_value = self.flatten(state_value)
+        state_value = self.fc1(state_value)
+        state_value = self.fc2(state_value)
+        v = self.v(state_value)
+        return v
+    
+class ActorNetwork(keras.Model):
+    def __init__(self, max_action, input_dims, fc1_dims=256, fc2_dims=256, name='actor', n_actions=2, chkpt_dir='tmp/sac'):
+        super(ActorNetwork, self).__init__()
+        self.fc1_dims = fc1_dims
+        self. fc2_dims = fc2_dims
+        self.n_actions = n_actions
+        self.model_name = name
+        self.checkpoint_dir = chkpt_dir
+        self.checkpoint_file = os.path.join(self.checkpoint_dir, name+'_sac')
+        self.max_action = max_action
+        self.noise = 1e-6
+
+        self.conv_1 = Conv2D(32, (6,6), activation='relu', input_shape=input_dims)
+        self.conv_2 = Conv2D(64, (3,3), activation='relu')
+        self.flatten = Flatten()
+        self.fc1 = Dense(self.fc1_dims, activation='relu')
+        self.fc2 = Dense(self.fc2_dims, activation='relu')
+        self.mu = Dense(self.n_actions, activation=None)
+        self.sigma = Dense(self.n_actions, activation=None)
+        return
+    
+    def call(self, state):
+        prob = self.conv_1(state)
+        prob = self.conv_2(prob)
+        prob = self.flatten(prob)
+        prob = self.fc1(prob)
+        prob = self.fc2(prob)
+        mu = self.mu(prob)
+        sigma = self.sigma(prob)
+        sigma = tf.clip_by_value(sigma, self.noise, 1)
+        return mu, sigma
+    
+    def sample_normal(self, state):
+        mu, sigma = self.call(state)
+        probabilities = tfp.distributions.Normal(mu, sigma)
+        actions = probabilities.sample()
+        action = tf.math.tanh(actions) * self.max_action
+        log_probs = probabilities.log_prob(actions)
+        log_probs -= tf.math.log(1-tf.math.pow(action, 2) + self.noise)
+        log_probs = tf.math.reduce_sum(log_probs, axis=1, keepdims=True)
+        return action, log_probs
+
+class Agent(object):
+    def __init__(self, alpha=0.003, beta=0.003, input_dims=8, max_action=1.0, gamma=0.99, n_actions=2, mem_size=1000000, tau=0.005, layer1_size=256, layer2_size=256, batch_size=256, reward_scale=2):
         self.choice_maker = "[UNKNOWN]"
-        self.exp_count = 0          # Initialize experience counter
-        self.target_update_count = 0# Initialize counter that counts to next update of the target q network
-        self.episode_rewards = []   # Initialize the list of rewards for current episode
-        self.rewards = []           # Initialize the list of rewards (for analysis)
+        self.gamma = gamma
+        self.tau = tau
+        self.memory = ReplayBuffer(mem_size, input_dims, n_actions)
+        self.batch_size = batch_size
+        self.n_actions = n_actions
+
+        self.actor = ActorNetwork(n_actions=n_actions, name='actor', max_action=max_action)
+        self.critic_1 = CriticNetwork(n_actions=n_actions, name='critic_1')
+        self.critic_2 = CriticNetwork(n_actions=n_actions, name='critic_2')
+        self.value = ValueNetwork(n_actions=n_actions, name='value')
+        self.target_value = ValueNetwork(n_actions=n_actions, name='target_value')
+
+        self.actor.compile(optimizer=Adam(learning_rate=alpha))
+        self.critic_1.compile(optimizer=Adam(learning_rate=beta))
+        self.critic_2.compile(optimizer=Adam(learning_rate=beta))
+        self.value.compile(optimizer=Adam(learning_rate=beta))
+        self.target_value.compile(optimizer=Adam(learning_rate=beta))
+
+        self.scale = reward_scale
+        self.update_network_parameters(tau=1)
         return
     
-    # Function to update runtime variables
-    def update_state(self, state=None, action=None, reward=None, done=None):
-        self.previous_state = self.current_state    # Save previous state
-        self.current_action = action                # Get new action
-        self.current_reward = reward                # Get new reward
-        self.current_state = state                  # Get new state
-        self.done = done                            # Get done flag
-        return
-    
-    # Function to set the hyperparameters
-    def set_hyperparams(self, no_actions = 1, experience_buffer_size = 500, target_q_update_frequency = 5, learning_rate=0.001, metrics=None, discount_factor=0.5):
-        self.no_actions = no_actions
-        self.experience_buffer_size = experience_buffer_size
-        self.target_q_update_frequency = target_q_update_frequency
-        self.optimizer = keras.optimizers.legacy.SGD(learning_rate=learning_rate, clipnorm=1.0)
-        self.metrics = metrics
-        self.discount_factor = discount_factor
-        return
-    
-    def compile_networks(self, alpha=0.01):
-        self.alpha = alpha
-        self.P_net.compile(optimizer=self.optimizer, loss=policy_loss(alpha=self.alpha), metrics=self.metrics)
-        self.Q_net.compile(optimizer=self.optimizer, loss=q_loss(), metrics=self.metrics)
-        self.target_Q_net.compile(optimizer=self.optimizer, loss=q_loss(), metrics=self.metrics)
-        self.V_net.compile(optimizer=self.optimizer, loss=v_loss(), metrics=self.metrics)
-        return
-    
-    # Function to estimate Q values given the state
-    def estimate_q_values(self, state):
-        self.q_values = self.Q_net.predict(state, verbose=0)
-        return
-    
-    # Function to estimate Q' values given the state
-    def estimate_target_q_values(self, state):
-        self.target_q_values = self.target_Q_net.predict(state, verbose=0)
-        return
-    
-    # Function to estimate V value given the state
-    def estimate_state_value(self, state):
-        self.current_state_value = self.V_net.predict(state, verbose=0)
-        return
-    
-    # Function to estimate Policy π values given the state
-    def estimate_policy(self, state):
-        policy = self.estimate_action_probabilities(state)
-        self.current_policy = tf.nn.softmax(policy)
-        return
-    
-    def estimate_action_probabilities(self, state):
-        return self.P_net.predict(state, verbose=0)
-    
-    # Function to update Policy network
-    def update_p_net(self, verbose=0):
-        with tf.GradientTape() as tape:
-            logits = self.P_net(self.previous_state)                                    # Get policy net output (for getting the actions)
-            actions, action_probs = self.sample_actions(logits=logits)                  # Sample actions
-            log_probs = tf.math.log(tf.gather(action_probs, actions, batch_dims=1))     # Compute natural logarithm of action probability
-            q_values = self.Q_net(self.previous_state)                                  # Estimate Q values for the current state
-            policy_loss = tf.reduce_mean(log_probs - q_values)                          # Calculate policy loss
-        gradients = tape.gradient(policy_loss, self.P_net.trainable_variables)          # Calculate gradients
-        self.optimizer.apply_gradients(zip(gradients, self.P_net.trainable_variables))  # Update network parameters
-        if verbose > 0:
-            print("Loss: ", policy_loss)
-        return
-    
-    # Helper function to get sampled actions and action probabilities
-    def sample_actions(self, logits):
-        action_probs = tf.nn.softmax(logits)
-        sampled_actions = tf.random.categorical(logits, num_samples=1)
-        return tf.squeeze(sampled_actions, axis=1), action_probs
-    
-    # Function to update Q network
-    def update_q_net(self, verbose=0):
-        with tf.GradientTape() as tape:
-            q_values = self.Q_net(self.previous_state)                                      # Estimate q values
-            next_state_value = self.V_net(self.current_state)                               # Estimate state value for next state
-            next_state_value = tf.stop_gradient(next_state_value)                           # Detach next state value from the computation graph
-            target_q_values = self.current_reward + self.discount_factor * next_state_value # Compute target Q values
-            q_loss = tf.reduce_mean(0.5 * tf.square(q_values - target_q_values))            # Calculate Q loss function
-        gradients = tape.gradient(q_loss, self.Q_net.trainable_variables)                   # Calculate gradients
-        self.optimizer.apply_gradients(zip(gradients, self.Q_net.trainable_variables))      # Update network parameters
-        if verbose > 0:
-            print("Loss: ", q_loss)
-        return
-    
-    # Function to update State Value (V) network
-    def update_v_net(self, verbose=0):
-        with tf.GradientTape() as tape:
-            state_value = self.V_net(self.previous_state)                               # Estimate state value
-            logits = self.P_net(self.previous_state)                                    # Get policy net output
-            actions, action_probs = self.sample_actions(logits)                         # Sample actions
-            q_values = self.Q_net(self.previous_state)                                  # Estimate Q values
-            log_probs = tf.math.log(tf.gather(action_probs, actions, batch_dims=1))     # Calculate natural logarithm of action probability
-            target_values = q_values - self.alpha * log_probs                           # Calculate target Q values
-            target_values = tf.stop_gradient(target_values)                             # Stop gradient for target
-            loss = tf.reduce_mean(0.5 * tf.square(state_value - target_values))         # Calculate state value loss
-        gradients = tape.gradient(loss, self.V_net.trainable_variables)                 # Calculate gradients
-        self.optimizer.apply_gradients(zip(gradients, self.V_net.trainable_variables))  # Update network parameters
-        if verbose > 0:
-            print("Loss: ", loss)
-        return
-     
-    # Function to store the experience (state, action, reward, next state, done)
-    def store_experience(self):
-        # Make sure exp_count (index pointer) does not go out of bounds
-        if self.exp_count >= self.experience_buffer_size:
-            self.exp_count = 0
-        # Get experience record
-        experience = [self.previous_state, self.current_action, self.current_reward, self.current_state, self.done]
-        if len(self.experience_buffer) < self.experience_buffer_size:
-            self.experience_buffer.append(experience)           # Append the experience if maximum not met
-        else:
-            self.experience_buffer[self.exp_count] = experience # Otherwise, replace previous record with new one
-            self.exp_count += 1
-        return
-    
-    # Function to update runtime variables
-    def update_state(self, state=None, action=None, reward=None, done=None):
-        self.previous_state = self.current_state    # Save previous state
-        self.current_action = action                # Get new action
-        self.current_reward = reward                # Get new reward
-        self.current_state = state                  # Get new state
-        self.done = done                            # Get done flag
-        return
-    
-    # Function to choose an action
-    def choose_action(self):
-        self.current_policy = self.P_net(self.current_state)
-        self.current_action = tf.random.categorical(self.current_policy, num_samples=1)
-        self.current_action = tf.squeeze(self.current_action).numpy()
+    def choose_action(self, observation):
+        state = tf.convert_to_tensor([observation])
+        actions, _ = self.actor.sample_normal(state)
         self.choice_maker = "[ESTIMATED]"
-        return
-
-    # Function to run the DQN algorithm (do not use update_network [I just left it there for experimental purposes])
-    def run(self, update_network=False, store_experience=True, verbose=0):
-        self.update_state(self.agent.state, self.agent.action, self.agent.reward, self.agent.done)              # Get observation
-        self.episode_rewards.append(self.current_reward)                                                        # Store reward to the episode rewards list
-        self.choose_action()
-        self.agent.decode_action(verbose=verbose)                                                               # Choose action
-        if update_network or store_experience:
-            time.sleep(0.1) # Wait a little bit for changes
-            self.update_state(self.agent.state, self.agent.action, self.agent.reward, self.agent.done)          # Get next observation
-        if update_network:
-            self.update_networks(verbose=verbose)                                                               # Update networks
-        if store_experience:
-            self.store_experience()                                                                             # Store experience
+        return actions[0]
+    
+    def remember(self, state, action, reward, new_state, done):
+        self.memory.store_transition(state, action, reward, new_state, done)
         return
     
-    def update_networks(self, verbose=0):
-        print("Updating Q net...")
-        self.update_q_net(verbose=verbose)
-        print("-----------------")
-        print("Updating P net...")
-        self.update_p_net(verbose=verbose)
-        print("-----------------")
-        print("Updating V net...")
-        self.update_v_net(verbose=verbose)
-        print("-----------------")
+    def update_network_parameters(self, tau=None):
+        if tau == None:
+            tau = self.tau
+        weights = []
+        targets = self.target_value.get_weights()
+        for i, weight in enumerate(self.value.get_weights()):
+            weights.append(weight * tau + targets[i]*(1-tau))
+        self.target_value.set_weights(weights)
         return
     
-    # Function to train the Q networks from the experience buffer
-    def train(self, no_exp, verbose=0):
-        if len(self.experience_buffer) > 0:
-            # Sample experiences
-            if no_exp >= len(self.experience_buffer):
-                sample_experience = random.sample(self.experience_buffer, len(self.experience_buffer))
-            else:
-                sample_experience = random.sample(self.experience_buffer, no_exp)
-            # Replay experiences
-            for i in range(len(sample_experience)):
-                self.current_state = sample_experience[i][0]
-                self.update_state(state=sample_experience[i][3],
-                                  action=sample_experience[i][1],
-                                  reward=sample_experience[i][2],
-                                  done=sample_experience[i][4])
-                self.update_networks(verbose=verbose)
-            #self.update_target_q_net()
+    def save_models(self, path):
+        print("Saving models...")
+        self.actor.save_weights(path+"actor_sac")
+        self.critic_1.save_weights(path+"critic_2_sac")
+        self.critic_2.save_weights(path+"critic_1_sac")
+        self.value.save_weights(path+"value_sac")
+        self.target_value.save_weights(path+"target_value_sac")
+        print("Save complete")
         return
     
-    # Function to save the neural networks to a file
-    def save_networks(self, policy_path=None, q_path = None, v_path = None, target_q_path=None):
-        if policy_path != None:
-            self.P_net.save(policy_path)
-            print("P network saved")
-        if q_path != None:
-            self.Q_net.save(q_path)
-            print("Q network saved")
-        if v_path != None:
-            self.V_net.save(v_path)
-            print("V network saved")
-        if target_q_path != None:
-            self.target_Q_net.save(target_q_path)
-            print("Target Q network saved")
+    def load_models(self, path):
+        print("Loading models...")
+        self.actor.load_weights(path+"actor_sac")
+        self.critic_1.load_weights(path+"critic_1_sac")
+        self.critic_2.load_weights(path+"critic_2_sac")
+        self.value.load_weights(path+"value_sac")
+        self.target_value.load_weights(path+"target_value_sac")
+        print("Models loaded")
         return
     
-    # Function to load the neural networks from a file
-    def load_networks(self, policy_path = None, q_path=None, v_path = None, target_q_path=None):
-        if q_path != None:
-            self.P_net = keras.models.load_model(policy_path)
-            print("P network loaded")
-        if q_path != None:
-            self.Q_net = keras.models.load_model(q_path)
-            print("Q network loaded")
-        if v_path != None:
-            self.V_net = keras.models.load_model(v_path)
-            print("V network loaded")
-        if target_q_path != None:
-            self.target_Q_net = keras.models.load_model(target_q_path)
-            print("Target Q network loaded")
-        return
-    
-    # Function to save episode rewards into the rewards list and clear the episode rewards list
-    def store_episode_rewards(self):
-        if len(self.episode_rewards) == 0:
-            print("ALERT: Episode rewards list is empty! Skipping store operation.")
+    def learn(self):
+        if self.memory.mem_cntr < self.batch_size:
             return
-        self.rewards.append(self.episode_rewards)
-        self.episode_rewards = []
-        print("Stored reward list of size ", len(self.rewards[-1]))
+        state, action, reward, new_state, done = self.memory.sample_buffer(self.batch_size)
+        states = tf.convert_to_tensor(state, dtype=tf.float32)
+        states_ = tf.convert_to_tensor(new_state, dtype=tf.float32)
+        rewards = tf.convert_to_tensor(reward, dtype=tf.float32)
+        actions = tf.convert_to_tensor(action, dtype=tf.float32)
+
+        with tf.GradientTape() as tape:
+            value = tf.squeeze(self.value(states), 1)
+            value_ = tf.squeeze(self.target_value(states_), 1)
+            current_policy_actions, log_probs = self.actor.sample_normal(states)
+            log_probs = tf.squeeze(log_probs, 1)
+            q1_new_policy = self.critic_1(states, current_policy_actions)
+            q2_new_policy = self.critic_2(states, current_policy_actions)
+            critic_value = tf.squeeze(tf.math.minimum(q1_new_policy, q2_new_policy), 1)
+            value_target = critic_value - log_probs
+            value_loss = 0.5 * keras.losses.MSE(value, value_target)
+        value_network_gradient = tape.gradient(value_loss, self.value.trainable_variables)
+        self.value.optimizer.apply_gradients(zip(value_network_gradient, self.value.trainable_variables))
+
+        with tf.GradientTape() as tape:
+            new_policy_actions, log_probs = self.actor.sample_normal(states)
+            log_probs = tf.squeeze(log_probs, 1)
+            q1_new_policy = self.critic_1(states, current_policy_actions)
+            q2_new_policy = self.critic_2(states, current_policy_actions)
+            critic_value = tf.squeeze(tf.math.minimum(q1_new_policy, q2_new_policy), 1)
+            actor_loss = log_probs - critic_value
+            actor_loss = tf.math.reduce_mean(actor_loss)
+        actor_network_gradient = tape.gradient(actor_loss, self.actor.trainable_variables)
+        self.actor.optimizer.apply_gradients(zip(actor_network_gradient, self.actor.trainable_variables))
+
+        with tf.GradientTape(persistent=True) as tape:
+            q_hat = self.scale * reward + self.gamma * value_ * (1-done)
+            q1_old_policy = tf.squeeze(self.critic_1(state, action), 1)
+            q2_old_policy = tf.squeeze(self.critic_2(state, action), 1)
+            critic_1_loss = 0.5 * keras.losses.MSE(q1_old_policy, q_hat)
+            critic_2_loss = 0.5 * keras.losses.MSE(q2_old_policy, q_hat)
+        critic_1_network_gradient = tape.gradient(critic_1_loss, self.critic_1.trainable_variables)
+        critic_2_network_gradient = tape.gradient(critic_2_loss, self.critic_2.trainable_variables)
+        self.critic_1.optimizer.apply_gradients(zip(critic_1_network_gradient, self.critic_1.trainable_variables))
+        self.critic_2.optimizer.apply_gradients(zip(critic_2_network_gradient, self.critic_2.trainable_variables))
+
+        self.update_network_parameters()
         return
-    
-    # Function to save rewards chart
-    def save_reward_chart(self, save_path):
-        # Get number of episodes
-        no_episodes = [i for i in range(len(self.rewards))]
-        # Initialize lists
-        average_rewards = []
-        median_rewards = []
-        min_rewards = []
-        max_rewards = []
-        # Get average reward per episode
-        for reward in self.rewards:
-            average_rewards.append(np.average(reward))
-        # Get median reward per episode
-        for reward in self.rewards:
-            median_rewards.append(np.median(reward))
-        # Get minimum reward per episode
-        for reward in self.rewards:
-            min_rewards.append(np.min(reward))
-        # Get maximum reward per episode
-        for reward in self.rewards:
-            max_rewards.append(np.max(reward))
-        # Format x axis
-        xint = range(0, len(no_episodes))
-        plt.xticks(xint)
-        # Plot
-        plt.plot(no_episodes, average_rewards, label='Average Reward', color='red') # Plot average reward per episode with red line (data is tagged as 'Average Reward')
-        plt.plot(no_episodes, median_rewards, label='Median Reward', color='blue')  # Plot median reward per episode with blue line (data is tagged as 'Median Reward')
-        plt.xlabel('Episode')                                                       # Set label for X axis (episodes)
-        plt.ylabel('Reward')                                                        # Set label for Y axis (reward values)
-        plt.title('Rewards per Episode')                                            # Set chart title
-        plt.fill_between(no_episodes, min_rewards, max_rewards, alpha=0.2)          # Show range between min and max rewards
-        plt.xticks(range(0, self.agent.max_episodes,100))
-        plt.legend()                                                                # Show chart legend (data tags)
-        plt.savefig(save_path)                                                      # Save chart
-        return
-
-# Lp(Φ) = α * log(π(a|s;Φ)) - Q(s,a;θ)
-#       alpha     y_pred       y_true
-def policy_loss(alpha=0.01):
-    def loss(y_true, y_pred):
-        policy_entropy = alpha * K.log(y_pred + 0.000001)
-        p_loss = policy_entropy - y_true
-        return p_loss
-    return loss
-
-# TD(θ)=1/2E(s,a,r,s')~D[(Q(s,a;θ) - (r + γ * V'(s';Φ)))^2]
-#                         y_pred     |_____y_true_____|
-def q_loss():
-    def loss(y_true, y_pred):
-        TD = 1/2 * (K.pow((y_pred - y_true), 2))
-        return TD
-    return loss
-
-# Lv(ψ) = 1/2Es~D[(V(s,ψ) - Ea~π(.|s)[Q(s,a;θ)] - α * log(π(a|s;Φ )))^2]
-#                  y_pred   |________________y_true_________________|
-def v_loss():
-    def loss(y_true, y_pred):
-        V_loss = 1/2 * (K.pow((y_pred - y_true), 2))
-        return V_loss
-    return loss
