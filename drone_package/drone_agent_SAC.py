@@ -140,25 +140,27 @@ class DroneAgent_SAC(Node):
    
    # Function to decode the action number into action
    def decode_action(self, action, verbose=0):
+      x = action[0].item()
+      y = action[1].item()
       msg = DroneControl()
       if verbose > -1:
          cmd_message = ""
-         if action[0] > 0.0:
+         if x > 0.0:
             cmd_message += "FORWARD "
-         elif action[0] < 0.0:
+         elif x < 0.0:
             cmd_message += "BACKWARD "
          else:
             cmd_message += "IDLE "
-         if action[1] > 0.0:
+         if y > 0.0:
             cmd_message += "LEFT "
-         elif action[1] < 0.0:
+         elif y < 0.0:
             cmd_message += "RIGHT "
          else:
             cmd_message += "IDLE "
          cmd_message += self.agent.choice_maker
          print(cmd_message)
-      msg.twist.linear.x = action[0]
-      msg.twist.linear.y = action[1]
+      msg.twist.linear.x = x
+      msg.twist.linear.y = y
       msg.speed.x = self.control_params.roll
       msg.speed.y = self.control_params.yaw
       msg.speed.z = self.control_params.throttle
@@ -169,7 +171,7 @@ class DroneAgent_SAC(Node):
 def main(args=None):
    d_id = input("Drone ID please: ")
 
-   agent = Agent(input_dims=(84,84,1), max_action=1.0, n_actions=4)
+   agent = Agent(input_dims=(84,84,1), max_action=1.0, n_actions=2)
    control = Control(yaw=10.0, roll=10.0, throttle=10.0)
    environment = Environment(state_shape=(84,84,1))
 

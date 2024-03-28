@@ -4,7 +4,7 @@ import keras
 from keras.layers import Conv2D, Dense, Flatten
 from keras.optimizers import Adam
 import os
-from AgentMemory import ReplayBuffer
+from .AgentMemory import ReplayBuffer
 
 class CriticNetwork(keras.Model):
     def __init__(self, n_actions, input_dims, fc1_dims=256, fc2_dims=256, name='critic', chkpt_dir='tmp/sac'):
@@ -101,7 +101,7 @@ class ActorNetwork(keras.Model):
         return action, log_probs
 
 class Agent(object):
-    def __init__(self, alpha=0.003, beta=0.003, input_dims=8, max_action=1.0, gamma=0.99, n_actions=2, mem_size=1000000, tau=0.005, layer1_size=256, layer2_size=256, batch_size=256, reward_scale=2):
+    def __init__(self, alpha=0.003, beta=0.003, input_dims=8, max_action=1.0, gamma=0.99, n_actions=2, mem_size=1000, tau=0.005, layer1_size=256, layer2_size=256, batch_size=256, reward_scale=2):
         self.choice_maker = "[UNKNOWN]"
         self.gamma = gamma
         self.tau = tau
@@ -109,11 +109,11 @@ class Agent(object):
         self.batch_size = batch_size
         self.n_actions = n_actions
 
-        self.actor = ActorNetwork(n_actions=n_actions, name='actor', max_action=max_action)
-        self.critic_1 = CriticNetwork(n_actions=n_actions, name='critic_1')
-        self.critic_2 = CriticNetwork(n_actions=n_actions, name='critic_2')
-        self.value = ValueNetwork(n_actions=n_actions, name='value')
-        self.target_value = ValueNetwork(n_actions=n_actions, name='target_value')
+        self.actor = ActorNetwork(n_actions=n_actions, name='actor', input_dims=input_dims, max_action=max_action)
+        self.critic_1 = CriticNetwork(n_actions=n_actions, input_dims=input_dims, name='critic_1')
+        self.critic_2 = CriticNetwork(n_actions=n_actions, input_dims=input_dims, name='critic_2')
+        self.value = ValueNetwork(n_actions=n_actions, input_dims=input_dims, name='value')
+        self.target_value = ValueNetwork(n_actions=n_actions, input_dims=input_dims, name='target_value')
 
         self.actor.compile(optimizer=Adam(learning_rate=alpha))
         self.critic_1.compile(optimizer=Adam(learning_rate=beta))
@@ -165,9 +165,11 @@ class Agent(object):
         print("Models loaded")
         return
     
-    def learn(self):
+    def learn(self, verbose=0):
         if self.memory.mem_cntr < self.batch_size:
             return
+        if verbose > 0:
+            print("----------------------")
         state, action, reward, new_state, done = self.memory.sample_buffer(self.batch_size)
         states = tf.convert_to_tensor(state, dtype=tf.float32)
         states_ = tf.convert_to_tensor(new_state, dtype=tf.float32)
@@ -184,6 +186,8 @@ class Agent(object):
             critic_value = tf.squeeze(tf.math.minimum(q1_new_policy, q2_new_policy), 1)
             value_target = critic_value - log_probs
             value_loss = 0.5 * keras.losses.MSE(value, value_target)
+        if verbose > 0:
+            print("Value loss: ", value_loss)
         value_network_gradient = tape.gradient(value_loss, self.value.trainable_variables)
         self.value.optimizer.apply_gradients(zip(value_network_gradient, self.value.trainable_variables))
 
@@ -195,6 +199,8 @@ class Agent(object):
             critic_value = tf.squeeze(tf.math.minimum(q1_new_policy, q2_new_policy), 1)
             actor_loss = log_probs - critic_value
             actor_loss = tf.math.reduce_mean(actor_loss)
+        if verbose > 0:
+            print("Actor loss: ", actor_loss)
         actor_network_gradient = tape.gradient(actor_loss, self.actor.trainable_variables)
         self.actor.optimizer.apply_gradients(zip(actor_network_gradient, self.actor.trainable_variables))
 
@@ -204,10 +210,15 @@ class Agent(object):
             q2_old_policy = tf.squeeze(self.critic_2(state, action), 1)
             critic_1_loss = 0.5 * keras.losses.MSE(q1_old_policy, q_hat)
             critic_2_loss = 0.5 * keras.losses.MSE(q2_old_policy, q_hat)
+        if verbose > 0:
+            print("Critic 1 loss: ", critic_1_loss)
+            print("Critic 2 loss: ", critic_2_loss)
         critic_1_network_gradient = tape.gradient(critic_1_loss, self.critic_1.trainable_variables)
         critic_2_network_gradient = tape.gradient(critic_2_loss, self.critic_2.trainable_variables)
         self.critic_1.optimizer.apply_gradients(zip(critic_1_network_gradient, self.critic_1.trainable_variables))
         self.critic_2.optimizer.apply_gradients(zip(critic_2_network_gradient, self.critic_2.trainable_variables))
 
         self.update_network_parameters()
+        if verbose > 0:
+            print("----------------------")
         return
