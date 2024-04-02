@@ -171,7 +171,7 @@ class DroneAgent_SAC(Node):
 def main(args=None):
    d_id = input("Drone ID please: ")
 
-   agent = Agent(input_dims=(84,84,1), max_action=1.0, n_actions=2)
+   agent = Agent(alpha=0.003, beta=0.003, input_dims=(84,84,1), max_action=1.0, gamma=0.99, n_actions=2, mem_size=1000, tau=0.005, layer1_size=256, layer2_size=256, batch_size=256, reward_scale=2)
    control = Control(yaw=10.0, roll=10.0, throttle=10.0)
    environment = Environment(state_shape=(84,84,1))
 

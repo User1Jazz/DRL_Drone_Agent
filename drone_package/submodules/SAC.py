@@ -24,10 +24,10 @@ class CriticNetwork(keras.Model):
         return
     
     def call(self, state, action):
-        action_value = self.conv_1(tf.concat([state,action], axis=1))
-        action_value = self.conv_2(action_value)
-        action_value = self.flatten(action_value)
-        action_value = self.fc1(action_value)
+        processed_state = self.conv_1(state)
+        processed_state = self.conv_2(processed_state)
+        processed_state = self.flatten(processed_state)
+        action_value = self.fc1(tf.concat([processed_state,action], axis=1))
         action_value = self.fc2(action_value)
         q = self.q(action_value)
         return q
