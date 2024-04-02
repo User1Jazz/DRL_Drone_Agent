@@ -77,7 +77,7 @@ class RewardStorage(object):
         plt.ylabel('Reward')
         plt.title('Rewards per Episode')
         plt.fill_between(n_episodes, min_rewards, max_rewards, alpha=alpha)
-        plt.xticks(range(0, n_episodes, reward_gap))
+        plt.xticks(range(0, len(n_episodes), reward_gap))
         plt.legend()
         plt.savefig(save_path)
         return
