@@ -1,3 +1,8 @@
+""""
+Code provided by Phil Tabor in tutorial: https://www.youtube.com/watch?v=UCgsv6tMReY&t=1328s
+and modified by Kristijan Segulja to work with the drone camera data
+"""
+
 from keras.layers import Conv2D, Dense, Flatten, Activation
 from keras.models import Sequential, load_model
 from keras.optimizers import Adam
@@ -5,7 +10,7 @@ import numpy as np
 from .AgentMemory import ReplayBuffer
 
 class Agent(object):
-    def __init__(self, alpha, gamma, n_actions, epsilon, batch_size, input_dims, epsilon_dec=0.996, epsilon_end = 0.01, mem_size=1000000, fname='double_dqn_model.keras', replace_target=100):
+    def __init__(self, alpha, gamma, n_actions, epsilon, batch_size, input_dims, epsilon_dec=0.996, epsilon_end = 0.01, mem_size=1000000, fname='double_dqn_model.keras', replace_target=100, training=True):
         self.choice_maker = ["UNKNOWN"]
         self.action_space = [i for i in range(n_actions)]
         self.n_actions = n_actions
@@ -19,6 +24,7 @@ class Agent(object):
         self.memory = ReplayBuffer(mem_size, input_dims, n_actions, discrete=True)
         self.q_eval = self.build_dqn(alpha, n_actions, input_dims, 256, 256)
         self.q_target = self.build_dqn(alpha, n_actions, input_dims, 256, 256)
+        self.training = training
         return
     
     def build_dqn(self, lr, n_actions, input_dims, fc1_dims, fc2_dims):
@@ -44,7 +50,7 @@ class Agent(object):
     def choose_action(self, state):
         state = state[np.newaxis, :]
         rand = np.random.random()
-        if rand < self.epsilon:
+        if rand < self.epsilon and self.training:
             action = np.random.choice(self.action_space)
             self.choice_maker = "[RANDOM]"
         else:
@@ -70,17 +76,27 @@ class Agent(object):
         self.epsilon = self.epsilon * self.epsilon_dec if self.epsilon > self.epsilon_min else self.epsilon_min
         if self.memory.mem_cntr % self.replace_target == 0:
             self.update_network_parameters()
-        return
+        return _.history["loss"][0]
     
     def update_network_parameters(self):
         self.q_target.set_weights(self.q_eval.get_weights())
     
-    def save_model(self):
-        self.q_eval.save(self.model_file)
+    def save_model(self, path=None):
+        if path != None:
+            self.q_eval.save_weights(path, overwrite=True)
+        else:
+            #self.q_eval.save(self.model_file)
+            self.q_eval.save_weights(self.model_file, overwrite=True)
         return
     
-    def load_model(self):
-        self.q_eval = load_model(self.model_file)
-        if self.epsilon <= self.epsilon_min:
-            self.update_network_parameters()
+    def load_model(self, path=None):
+        if path != None:
+            self.q_eval.load_weights(self.model_file, skip_mismatch=False)
+            if self.epsilon <= self.epsilon_min:
+                self.update_network_parameters()
+        else:
+            #self.q_eval = load_model(self.model_file)
+            self.q_eval.load_weights(self.model_file, skip_mismatch=False)
+            if self.epsilon <= self.epsilon_min:
+                self.update_network_parameters()
         return
