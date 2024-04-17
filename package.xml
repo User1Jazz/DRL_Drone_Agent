@@ -1,10 +1,10 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>drone_node</name>
-  <version>0.0.0</version>
-  <description>TODO: Package description</description>
-  <maintainer email="blue02@todo.todo">blue02</maintainer>
+  <name>drone_package</name>
+  <version>1.0.0</version>
+  <description>This package contains the deep reinforcement learning algorithms to control the autonomous drone based on the depth map obtained from the drone camera(s). The following algorithms were implemented: Deep Q Network (DQN), Double Deep Q Network (DDQN), and Soft Actor Critic (SAC). Each algorithm is split into two classes: one is the agent class that contains the model architecture, while the other class handles the ROS2 subscription and publishing tasks. Extra functionality such as the experience replay buffer and the environment data container were implemented as separate classes.</description>
+  <maintainer email="kristijan.segulja22@gmail.com">kristijan</maintainer>
   <license>TODO: License declaration</license>
   
   <exec_depend>rclpy</exec_depend>
